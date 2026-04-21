@@ -1,16 +1,14 @@
 #include <Arduino.h>
 
 // ==========================================================
-// --- การตั้งค่าพินมอเตอร์ (L298N / TB6612) ---
+// --- การตั้งค่าพินมอเตอร์ (STM32 Pin Mapping) ---
 // ==========================================================
-#define AIN1 PA0  // ควบคุมทิศทางล้อซ้าย 1
-#define AIN2 PA1  // ควบคุมทิศทางล้อซ้าย 2 (PWM)
-#define BIN1 PB0  // ควบคุมทิศทางล้อขวา 1
-#define BIN2 PB1  // ควบคุมทิศทางล้อขวา 2 (PWM)
+#define AIN1 PA0  // มอเตอร์ซ้าย 1
+#define AIN2 PA1  // มอเตอร์ซ้าย 2 (PWM)
+#define BIN1 PB0  // มอเตอร์ขวา 1
+#define BIN2 PB1  // มอเตอร์ขวา 2 (PWM)
 
-// ==========================================================
-// --- การตั้งค่าพินเซนเซอร์อินฟราเรด (5 Channels) ---
-// ==========================================================
+// --- การตั้งค่าพินเซนเซอร์ (5 Channels) ---
 const int pinL2 = PB9; // ซ้ายสุด
 const int pinL1 = PB8; // ซ้ายใน
 const int pinC  = PB7; // กลาง
@@ -18,124 +16,64 @@ const int pinR1 = PB6; // ขวาใน
 const int pinR2 = PB5; // ขวาสุด
 
 // ==========================================================
-// --- ตัวแปรสำหรับระบบควบคุมและ PID ---
+// --- ตัวแปรปรับจูน (Tuning Parameters) ---
 // ==========================================================
-int remoteSpeed = 180;    // ความเร็วพื้นฐานที่รถวิ่ง (0-255)
-float Kp = 50.0;          // ค่า Proportional (แก้การเลี้ยว)
-float Kd = 25.0;          // ค่า Derivative (ลดการส่าย)
-int lastError = 0;        // ตัวแปรเก็บค่าความผิดพลาดครั้งก่อนหน้า
-bool isAutoMode = false;  // สถานะโหมด (True = วิ่งเอง / False = บังคับมือ)
-uint32_t stopUntil = 0;   // ตัวแปรใช้ควบคุมเวลาหยุดรถโดยไม่ใช้ delay()
+int remoteSpeed = 160;      // ลดความเร็วพื้นฐานลงเล็กน้อยเพื่อความเสถียร (แนะนำ 150-180)
+float Kp = 55.0;            // เพิ่มจาก 45 -> 55 เพื่อให้หักกลับแรงขึ้นเมื่อเริ่มเอียง
+float Kd = 22.0;            // ลดจาก 25 -> 22 เพื่อให้ไม่หน่วงการเลี้ยวมากเกินไป
+
+// *** จุดสำคัญ: แก้เอียงซ้าย ***
+// หากรถยังเอียงซ้าย ให้เพิ่มค่านี้ทีละ 5 (เช่น 25, 30)
+// หากรถกลายเป็นเอียงขวา ให้ลดค่านี้ลง
+int LEFT_MOTOR_OFFSET = 25; 
+
+int MIN_PWM = 135;          // เพิ่มกำลังไฟขั้นต่ำเพื่อให้มอเตอร์มีแรงชนะความฝืด
+int lastError = 0;
+bool isAutoMode = false;
+uint32_t stopUntil = 0;
 
 // ==========================================================
-// --- ฟังก์ชัน SETUP: กำหนดค่าเริ่มต้น ---
+// --- ฟังก์ชันควบคุมมอเตอร์ (ปรับปรุงระบบชดเชย) ---
 // ==========================================================
-void setup() {
-  // เริ่มต้นการสื่อสารผ่าน Serial
-  Serial.begin(115200);   // ช่องทาง Debug ดูผ่านคอมพิวเตอร์
-  Serial2.begin(115200);  // ช่องทาง Bluetooth (พิน PA2, PA3)
-  Serial3.begin(9600);    // ช่องทางรับข้อมูลจาก ESP32-CAM (พิน PB10, PB11)
 
-  // กำหนดโหมดพินมอเตอร์ให้เป็น Output
-  pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
-  pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
+void setMotorPWM(int L, int R) {
+  // --- ระบบชดเชยแรงบิด (Compensation) ---
+  // ลดกำลังล้อซ้ายลงตามค่า OFFSET เพื่อให้วิ่งตรง
+  if (L > 0) L -= LEFT_MOTOR_OFFSET;
+  else if (L < 0) L += LEFT_MOTOR_OFFSET;
 
-  // กำหนดโหมดพินเซนเซอร์ให้เป็น Input แบบ Pull-up (อ่านค่าได้ 0 เมื่อเจอดำ)
-  pinMode(pinL2, INPUT_PULLUP); pinMode(pinL1, INPUT_PULLUP);
-  pinMode(pinC,  INPUT_PULLUP); pinMode(pinR1, INPUT_PULLUP);
-  pinMode(pinR2, INPUT_PULLUP);
-
-  // สั่งให้มอเตอร์หยุดนิ่งก่อนเริ่มทำงาน
-  stopMotor();
-  Serial.println("==========================================");
-  Serial.println("STM32: FULL SYSTEM READY (5 ANIMALS MODE)");
-  Serial.println("==========================================");
-}
-
-// ==========================================================
-// --- ฟังก์ชัน LOOP: ส่วนทำงานหลัก ---
-// ==========================================================
-void loop() {
+  // คุมช่วงความเร็ว (Constrain)
+  if (L > 0) L = constrain(L, MIN_PWM, 255);
+  else if (L < 0) L = constrain(L, -255, -MIN_PWM);
+  else L = 0;
   
-  // --- [1] ส่วนรับรหัสสัตว์จากกล้อง (Serial3) ---
-  // Python ส่งรหัสสัตว์มา -> ESP32 รับแล้วส่ง 'S' ต่อมาที่นี่
-  if (Serial3.available() > 0) {
-    char camCmd = Serial3.read();
-    
-    // ถ้าได้รับรหัสตัว 'S' (หมายถึงเจอสัตว์ที่กำหนดไว้)
-    if (camCmd == 'S') { 
-      Serial.println(">> [EVENT] ANIMAL DETECTED! <<");
-      Serial.println(">> ACTION: BRAKE AND STOP 5 SECONDS <<");
-      
-      // คำนวณเวลาที่จะให้หยุด (เวลาปัจจุบัน + 5000 มิลลิวินาที)
-      stopUntil = millis() + 5000; 
-      
-      // สั่งเบรกมอเตอร์ทันที
-      brakeMotor(); 
+  if (R > 0) R = constrain(R, MIN_PWM, 255);
+  else if (R < 0) R = constrain(R, -255, -MIN_PWM);
+  else R = 0;
 
-      // --- ส่วนสำคัญ: ล้างข้อมูลขยะใน Buffer ทิ้ง ---
-      // เพื่อป้องกันไม่ให้สัญญาณรบกวนในสนามทำให้รถหยุดซ้ำซ้อน
-      while(Serial3.available() > 0) {
-        Serial3.read(); 
-      }
-    }
-  }
+  // สั่งการล้อซ้าย (AIN1, AIN2)
+  if (L >= 0) { analogWrite(AIN1, 0); analogWrite(AIN2, L); }
+  else { analogWrite(AIN1, abs(L)); analogWrite(AIN2, 0); }
 
-  // --- [2] ส่วนตรวจสอบการหยุดรอ (Non-blocking Stop) ---
-  // ถ้าเวลาปัจจุบันยังไม่ถึงเวลาที่กำหนดให้หยุด จะข้ามการทำงานอื่นทั้งหมด
-  if (millis() < stopUntil) {
-    stopMotor(); // บังคับมอเตอร์ให้หยุดนิ่ง
-    return;      // ออกจาก loop ทันที (ไม่คำนวณ PID)
-  }
+  // สั่งการล้อขวา (BIN1, BIN2)
+  if (R >= 0) { analogWrite(BIN1, 0); analogWrite(BIN2, R); }
+  else { analogWrite(BIN1, abs(R)); analogWrite(BIN2, 0); }
+}
 
-  // --- [3] ส่วนรับคำสั่งจาก Bluetooth (Serial2) ---
-  if (Serial2.available() > 0) {
-    String cmd = Serial2.readStringUntil('\n');
-    cmd.trim(); 
-    cmd.toLowerCase();
+void stopMotor() {
+  analogWrite(AIN1, 0); analogWrite(AIN2, 0);
+  analogWrite(BIN1, 0); analogWrite(BIN2, 0);
+}
 
-    // เช็คคำสั่งเปลี่ยนโหมด
-    if (cmd.indexOf("auto") >= 0) {
-      isAutoMode = true;
-      lastError = 0; 
-      Serial.println("MODE SWITCHED: AUTO");
-    } 
-    else if (cmd.indexOf("manual") >= 0) {
-      isAutoMode = false;
-      stopMotor();
-      Serial.println("MODE SWITCHED: MANUAL");
-    }
-
-    // เช็คคำสั่งปรับความเร็ว (ตัวอย่าง speed:200)
-    if (cmd.indexOf("speed") >= 0 || cmd.indexOf("value") >= 0) {
-      String val = "";
-      for (int i=0; i<cmd.length(); i++) {
-        if (isDigit(cmd[i])) val += cmd[i];
-      }
-      if (val.length() > 0) {
-        remoteSpeed = constrain(val.toInt(), 100, 255);
-        Serial.print("NEW SPEED SET: "); Serial.println(remoteSpeed);
-      }
-    }
-
-    // การควบคุมด้วยมือ (ทำงานเฉพาะตอนไม่ได้เป็น Auto)
-    if (!isAutoMode) {
-      if (cmd.indexOf("forward") >= 0)        setMotorPWM(remoteSpeed, remoteSpeed);
-      else if (cmd.indexOf("backward") >= 0)   setMotorPWM(-remoteSpeed, -remoteSpeed);
-      else if (cmd.indexOf("left") >= 0)        setMotorPWM(-remoteSpeed, remoteSpeed);
-      else if (cmd.indexOf("right") >= 0)       setMotorPWM(remoteSpeed, -remoteSpeed);
-      else if (cmd.indexOf("stop") >= 0)        stopMotor();
-    }
-  }
-
-  // --- [4] ส่วนคำนวณการวิ่งอัตโนมัติ (PID Control) ---
-  if (isAutoMode) {
-    runPID();
-  }
+void brakeMotor() {
+  digitalWrite(AIN1, HIGH); digitalWrite(AIN2, HIGH);
+  digitalWrite(BIN1, HIGH); digitalWrite(BIN2, HIGH);
+  delay(150); 
+  stopMotor();
 }
 
 // ==========================================================
-// --- ฟังก์ชันย่อยสำหรับการทำงานต่างๆ ---
+// --- ระบบนำทาง (PID & Recovery Logic) ---
 // ==========================================================
 
 void runPID() {
@@ -145,81 +83,102 @@ void runPID() {
   int s3 = digitalRead(pinR1);
   int s4 = digitalRead(pinR2); 
 
+  // นับจำนวนเซนเซอร์ที่เจอเส้นดำ (0 คือเจอ)
   int blackCount = (s0 == 0) + (s1 == 0) + (s2 == 0) + (s3 == 0) + (s4 == 0);
 
-  // 1. เจอเส้นดำ (00000) -> หยุด
+  // [1] เจอเส้นจอด/ทางแยก (ดำ 4-5 ดวง)
   if (blackCount >= 4) { 
     brakeMotor();
+    isAutoMode = false; // หยุดโหมด Auto เมื่อถึงจุดจอด
     return;
   }
 
-  // 2. แก้ปัญหา "หลุดขวาแล้วนิ่ง" (11111)
+  // [2] กรณีหลุดเส้น (ขาวทั้งหมด) -> ระบบถอยหลังกู้คืน
   if (blackCount == 0) {
-    if (lastError >= 1) { 
-      // ถ้าหลุดขวา (error เป็นบวก) ต้องสั่งล้อซ้ายเดินหน้าแรงๆ ล้อขวาถอยหลัง
-      // เพิ่มความเร็วเป็น 220 เพื่อให้มอเตอร์มีกำลังพอแม้แบตจะอ่อน
-      setMotorPWM(220, -180); 
-    } 
-    else if (lastError <= -1) { 
-      // ถ้าหลุดซ้าย
-      setMotorPWM(-180, 220); 
-    }
-    else {
-      setMotorPWM(-120, -120); 
-    }
+    if (lastError >= 2)       setMotorPWM(-130, -170); // หลุดขวา -> ถอยเบี่ยงซ้าย
+    else if (lastError <= -2)  setMotorPWM(-170, -130); // หลุดซ้าย -> ถอยเบี่ยงขวา
+    else                       setMotorPWM(-150, -150); // หลุดกลาง -> ถอยตรง
     return; 
   }
 
-  // 3. ปรับค่าน้ำหนัก Error ให้ไวขึ้น
+  // [3] คำนวณ Error (ปรับให้น้ำหนักการเลี้ยวชัดเจนขึ้น)
   int error = 0;
-  if      (s0 == 0) error = -6; // ซ้ายสุด
-  else if (s1 == 0) error = -2;
-  else if (s4 == 0) error = 6;  // ขวาสุด
-  else if (s3 == 0) error = 2;
-  else if (s2 == 0) error = 0;
+  if      (s0 == 0) error = -4; // ซ้ายสุด
+  else if (s1 == 0) error = -2; // ซ้ายใน
+  else if (s4 == 0) error = 4;  // ขวาสุด
+  else if (s3 == 0) error = 2;  // ขวาใน
+  else if (s2 == 0) error = 0;  // กลาง
   else error = lastError;
 
-  int turn = (int)(Kp * error + Kd * (error - lastError));
-  turn = constrain(turn, -200, 200); 
-
-  // --- การชดเชยแรงบิดที่สัมพันธ์กับความเร็ว ---
-  // เพิ่มความเร็วพื้นฐานขึ้นเล็กน้อยเมื่อเริ่มวิ่งไปนานๆ หรือบวก Offset ล้อซ้ายเพิ่ม
-  int leftSpeed = remoteSpeed + turn + 15; // เพิ่มชดเชยล้อซ้ายเป็น 15
+  // [4] คำนวณ PID Output
+  float P = Kp * error;
+  float D = Kd * (error - lastError);
+  int turn = (int)(P + D);
+  
+  int leftSpeed = remoteSpeed + turn;
   int rightSpeed = remoteSpeed - turn;
 
   setMotorPWM(leftSpeed, rightSpeed);
   lastError = error; 
 }
 
-void setMotorPWM(int L, int R) {
-  // เพิ่ม minOutput เป็น 125 เพื่อให้มอเตอร์ขยับได้แม้แบตอ่อน
-  int minOutput = 125; 
+// ==========================================================
+// --- ส่วนทำงานหลัก (Setup & Loop) ---
+// ==========================================================
 
-  if (L > 0) L = constrain(L, minOutput, 255);
-  else if (L < 0) L = constrain(L, -255, -minOutput);
-  else L = 0;
+void setup() {
+  Serial.begin(115200);   // UART1 สำหรับ Debug
+  Serial2.begin(115200);  // UART2: สำหรับรับคำสั่ง Remote/Web
+  Serial3.begin(9600);    // UART3: รับคำสั่ง 'S' จาก ESP32-CAM
 
-  if (R > 0) R = constrain(R, minOutput, 255);
-  else if (R < 0) R = constrain(R, -255, -minOutput);
-  else R = 0;
+  pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
+  pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
+  pinMode(pinL2, INPUT_PULLUP); pinMode(pinL1, INPUT_PULLUP);
+  pinMode(pinC,   INPUT_PULLUP); pinMode(pinR1, INPUT_PULLUP);
+  pinMode(pinR2, INPUT_PULLUP);
 
-  // ควบคุมล้อซ้าย
-  if (L >= 0) { analogWrite(AIN1, 0); analogWrite(AIN2, L); }
-  else { analogWrite(AIN1, abs(L)); analogWrite(AIN2, 0); }
-
-  // ควบคุมล้อขวา
-  if (R >= 0) { analogWrite(BIN1, 0); analogWrite(BIN2, R); }
-  else { analogWrite(BIN1, abs(R)); analogWrite(BIN2, 0); }
-}
-void stopMotor() {
-  analogWrite(AIN1, 0); analogWrite(AIN2, 0);
-  analogWrite(BIN1, 0); analogWrite(BIN2, 0);
-}
-
-void brakeMotor() {
-  // จ่ายไฟเต็มพิกัดทั้งสองทิศทางในช่วงสั้นๆ เพื่อหยุดล้อทันที
-  digitalWrite(AIN1, HIGH); digitalWrite(AIN2, HIGH);
-  digitalWrite(BIN1, HIGH); digitalWrite(BIN2, HIGH);
-  delay(150); 
   stopMotor();
+  Serial.println("Robot Ready: Offset System Active");
+}
+
+void loop() {
+  // [1] เช็คคำสั่งหยุดจากกล้อง (สแกน QR เจอสัตว์)
+  if (Serial3.available() > 0) {
+    if (Serial3.read() == 'S') { 
+      stopUntil = millis() + 5000; 
+      brakeMotor(); 
+      while(Serial3.available() > 0) Serial3.read(); 
+    }
+  }
+
+  if (millis() < stopUntil) {
+    stopMotor();
+    return;
+  }
+
+  // [2] รับคำสั่งควบคุม (Auto/Manual/Speed)
+  if (Serial2.available() > 0) {
+    String cmd = Serial2.readStringUntil('\n');
+    cmd.trim(); cmd.toLowerCase();
+
+    if (cmd.indexOf("auto") >= 0) { isAutoMode = true; lastError = 0; } 
+    else if (cmd.indexOf("manual") >= 0) { isAutoMode = false; stopMotor(); }
+
+    if (cmd.indexOf("speed") >= 0) {
+      String val = "";
+      for (char c : cmd) if (isDigit(c)) val += c;
+      if (val.length() > 0) remoteSpeed = constrain(val.toInt(), 120, 220);
+    }
+
+    if (!isAutoMode) {
+      if (cmd.indexOf("forward") >= 0)       setMotorPWM(remoteSpeed, remoteSpeed);   // ลองลด speed ฝั่งขวา
+      else if (cmd.indexOf("backward") >= 0) setMotorPWM(-remoteSpeed, -remoteSpeed);
+      else if (cmd.indexOf("left") >= 0)     setMotorPWM(-remoteSpeed, remoteSpeed);
+      else if (cmd.indexOf("right") >= 0)    setMotorPWM(remoteSpeed, -remoteSpeed);
+      else if (cmd.indexOf("stop") >= 0)     stopMotor();
+    }
+  }
+
+  // [3] รันระบบเดินตามเส้น
+  if (isAutoMode) runPID();
 }
