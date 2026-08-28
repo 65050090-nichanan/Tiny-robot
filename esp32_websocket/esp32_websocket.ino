@@ -1,16 +1,16 @@
-#include <WiFi.h>
-#include <WebServer.h>
-#include <WebSocketsServer.h>
+#include <WiFi.h>              // รวมไลบรารีสำหรับการใช้งาน WiFi (สำหรับบอร์ด ESP32)
+#include <WebServer.h>         // รวมไลบรารีสำหรับสร้าง Web Server ให้บริการหน้าเว็บ
+#include <WebSocketsServer.h>  // รวมไลบรารีสำหรับสร้าง WebSocket Server เพื่อการสื่อสารเรียลไทม์
 
-const char* ssid = "My_Robot";
-const char* password = "password1234";
+const char* ssid = "My_Robot";          // กำหนดชื่อชื่อเครือข่าย WiFi (SSID) ที่หุ่นยนต์จะปล่อย Hotspot
+const char* password = "password1234";  // กำหนดรหัสผ่านสำหรับการเชื่อมต่อ WiFi
 
-WebServer server(80);
-WebSocketsServer webSocket = WebSocketsServer(81);
+WebServer server(80);                     // สร้างวัตถุ WebServer ที่พอร์ต 80 (พอร์ตมาตรฐาน HTTP)
+WebSocketsServer webSocket = WebSocketsServer(81);  // สร้างวัตถุ WebSocketsServer ที่พอร์ต 81 สำหรับส่งรับข้อมูลเรียลไทม์
 
 // --- ตัวแปรจำลองสถานะ ---
-bool isAutoMode = false;
-int robotSpeed = 150;
+bool isAutoMode = false;  // สร้างตัวแปรเก็บสถานะโหมดการทำงาน (false = MANUAL, true = AUTO)
+int robotSpeed = 150;     // สร้างตัวแปรเก็บความเร็วของหุ่นยนต์ (ค่าเริ่มต้น 150)
 
 // --- HTML หน้าควบคุม ---
 const char index_html[] PROGMEM = R"rawliteral(
@@ -94,66 +94,66 @@ const char index_html[] PROGMEM = R"rawliteral(
     </script>
 </body>
 </html>
-)rawliteral";
+)rawliteral";  // ปิดกั้นข้อมูล HTML ที่เก็บในหน่วยความจำ PROGMEM
 
 // --- ฟังก์ชันแสดงผลบน Monitor ---
-void logStatus(String action) {
-    Serial.print(">>> MODE: ");
-    Serial.print(isAutoMode ? "AUTO" : "MANUAL");
-    Serial.print(" | ACTION: ");
-    Serial.print(action);
-    Serial.print(" | SPEED: ");
-    Serial.println(robotSpeed);
+void logStatus(String action) {  // สร้างฟังก์ชัน logStatus เพื่อแสดงสถานะปัจจุบันผ่าน Serial Monitor
+    Serial.print(">>> MODE: ");  // พิมพ์ข้อความนำหน้าโหมด
+    Serial.print(isAutoMode ? "AUTO" : "MANUAL");  // ตรวจสอบโหมด ถ้า isAutoMode เป็น true พิมพ์ "AUTO" ถ้าไม่ใช่พิมพ์ "MANUAL"
+    Serial.print(" | ACTION: ");  // พิมพ์ข้อความนำหน้าคำสั่งที่ทำ
+    Serial.print(action);        // พิมพ์ชื่อคำสั่งที่ได้รับ
+    Serial.print(" | SPEED: ");   // พิมพ์ข้อความนำหน้าค่าความเร็ว
+    Serial.println(robotSpeed);  // พิมพ์ค่าความเร็วปัจจุบันแล้วขึ้นบรรทัดใหม่
 }
 
-void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-    if (type == WStype_TEXT) {
-        String msg = String((char*)payload);
-        if (msg == "MODE:AUTO") {
-            isAutoMode = true;
-            logStatus("SWITCHED TO AUTO");
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {  // ฟังก์ชันจัดการเหตุการณ์เมื่อมีข้อมูล WebSocket เข้ามา
+    if (type == WStype_TEXT) {  // ตรวจสอบว่าชนิดของข้อมูลเป็นข้อความตัวอักษร (TEXT) หรือไม่
+        String msg = String((char*)payload);  // แปลงข้อมูล payload ที่ได้รับให้อยู่ในรูปแบบตัวแปร String
+        if (msg == "MODE:AUTO") {             // ถ้าข้อความที่ส่งมาคือ "MODE:AUTO"
+            isAutoMode = true;                 // สลับเข้าสู่โหมดอัตโนมัติ (AUTO)
+            logStatus("SWITCHED TO AUTO");    // แสดงผลบน Monitor ว่าสลับไปโหมด AUTO แล้ว
         } 
-        else if (msg == "MODE:MANUAL") {
-            isAutoMode = false;
-            logStatus("SWITCHED TO MANUAL");
+        else if (msg == "MODE:MANUAL") {       // ถ้าข้อความที่ส่งมาคือ "MODE:MANUAL"
+            isAutoMode = false;                // สลับเข้าสู่โหมดบังคับมือ (MANUAL)
+            logStatus("SWITCHED TO MANUAL");  // แสดงผลบน Monitor ว่าสลับไปโหมด MANUAL แล้ว
         }
-        else if (msg.startsWith("SPEED:")) {
-            robotSpeed = msg.substring(6).toInt();
-            logStatus("SPEED_UPDATED");
+        else if (msg.startsWith("SPEED:")) {             // ถ้าข้อความขึ้นต้นด้วยคำว่า "SPEED:"
+            robotSpeed = msg.substring(6).toInt();       // ตัดเอาตัวเลขหลังคำว่า "SPEED:" แล้วแปลงเป็นจำนวนเต็มเก็บใน robotSpeed
+            logStatus("SPEED_UPDATED");                  // แสดงผลบน Monitor ว่ามีการอัปเดตความเร็ว
         } 
-        else {
-            logStatus(msg);
+        else {                  // ถ้าเป็นข้อความคำสั่งทิศทางอื่นๆ (เช่น forward, backward, stop)
+            logStatus(msg);     // บันทึกและแสดงผลข้อความคำสั่งนั้นๆ บน Serial Monitor
         }
     }
 }
 
 void setup() {
-    Serial.begin(115200);
-    WiFi.softAP(ssid, password);
+    Serial.begin(115200);         // เริ่มการสื่อสารผ่าน Serial บอร์ด ESP32 ที่ความเร็ว 115200 bps
+    WiFi.softAP(ssid, password);  // ตั้งค่าและเริ่มปล่อยสัญญาณ WiFi Access Point (AP) ตาม SSID และ Password ที่กำหนด
     
-    Serial.println("");
-    Serial.println("Robot Logic Tester Started!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.softAPIP());
+    Serial.println("");                               // พิมพ์ขึ้นบรรทัดใหม่เพื่อความสะอาดของหน้าจอ Monitor
+    Serial.println("Robot Logic Tester Started!");    // พิมพ์ข้อความแจ้งเตือนว่าโปรแกรมเริ่มทำงานแล้ว
+    Serial.print("IP Address: ");                      // พิมพ์ข้อความนำหน้าแสดงหมายเลข IP
+    Serial.println(WiFi.softAPIP());                  // พิมพ์หมายเลข IP Address ของ Access Point ออกทาง Serial Monitor
 
-    server.on("/", []() {
-        server.send_P(200, "text/html", index_html);
+    server.on("/", []() {                           // กำหนด URL เมื่อมีการเรียกเข้าหน้าหลัก "/" ของ WebServer
+        server.send_P(200, "text/html", index_html); // ส่งตอบกลับเป็นโค้ด HTML ที่เก็บบันทึกไว้ในหน่วยความจำ PROGMEM ด้วย HTTP Status 200
     });
-    server.begin();
+    server.begin();  // เริ่มต้นการทำงานของ Web Server
 
-    webSocket.begin();
-    webSocket.onEvent(onWebSocketEvent);
+    webSocket.begin();                      // เริ่มต้นการทำงานของ WebSocket Server
+    webSocket.onEvent(onWebSocketEvent);   // ลงทะเบียนฟังก์ชันที่จะเรียกใช้เมื่อมีเหตุการณ์ส่งรับข้อมูลผ่าน WebSocket
 } // <--- จุดที่ Error เดิม มักจะขาดปีกกานี้ หรืออันก่อนหน้า
 
 void loop() {
-    webSocket.loop();
-    server.handleClient();
+    webSocket.loop();       // ให้ระบบ WebSocket Server คอยทำงานวนลูปจัดการรับส่งข้อมูลอย่างต่อเนื่อง
+    server.handleClient();  // ให้ Web Server คอยรับคำขอเชื่อมต่อจากผู้ใช้อย่างต่อเนื่อง
 
-    if (isAutoMode) {
-        static unsigned long lastMsg = 0;
-        if (millis() - lastMsg > 2000) {
-            Serial.println("[Auto Mode] Processing logic...");
-            lastMsg = millis();
+    if (isAutoMode) {                                   // ตรวจสอบว่าอยู่ในโหมด AUTO หรือไม่
+        static unsigned long lastMsg = 0;               // สร้างตัวแปรเก็บเวลาครั้งล่าสุดที่พิมพ์ข้อมูล Auto (ไม่ถูกคืนค่าเมื่อจบ loop)
+        if (millis() - lastMsg > 2000) {                // ตรวจสอบว่าผ่านไปครบทุก 2000 มิลลิวินาที (2 วินาที) หรือยัง
+            Serial.println("[Auto Mode] Processing logic...");  // พิมพ์แสดงผลว่าโหมด Auto กำลังทำงานอยู่
+            lastMsg = millis();                         // อัปเดตเวลาล่าสุดให้เท่ากับเวลาปัจจุบัน
         }
     }
 }
