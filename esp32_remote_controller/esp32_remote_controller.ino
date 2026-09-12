@@ -59,8 +59,8 @@ const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อม
 const int STM32_TX_PIN = 17;  // ขา TX ของ ESP32 ส่งคำสั่งไป STM32
 const long STM32_BAUD = 115200;  // ความเร็วสื่อสารกับ STM32 ต้องตรงกับฝั่ง STM32
 
-const int OLED_SDA_PIN = 32;  // ขา SDA ของจอ OLED
-const int OLED_SCL_PIN = 33;  // ขา SCL ของจอ OLED
+const int OLED_SDA_PIN = 22;  // ขา SDA ของจอ OLED
+const int OLED_SCL_PIN = 21;  // ขา SCL ของจอ OLED
 const uint8_t OLED_ADDR = 0x3C;  // แอดเดรส I2C ของจอ (บางรุ่นเป็น 0x3D)
 // ความเร็ว I2C ตอนสแกนหาจอก่อนเริ่มไลบรารี
 // หมายเหตุ: ไลบรารี SH110X ตั้งความเร็วของมันเอง (ค่าเริ่มต้น 400 kHz) ตอนส่งภาพ
@@ -69,7 +69,6 @@ const uint32_t OLED_I2C_HZ = 100000;  // ส่งเข้าคอนสตร
 const int OLED_INIT_TRIES = 20;            // เคาะถามจอกี่ครั้งก่อนยอมแพ้
 const int OLED_INIT_WAIT_MS = 100;         // เว้นกี่มิลลิวินาทีระหว่างการเคาะแต่ละครั้ง
 const unsigned long OLED_CHECK_MS = 2000;
-const int OLED_RECOVER_PULSES = 20;        // สับนาฬิกาปลดล็อกบัสได้สูงสุดกี่ครั้ง
 const int OLED_FAIL_LIMIT = 3;             // เคาะถามพลาดติดกันกี่ครั้งถึงถือว่าจอหลุดจริง
 const int OLED_W = 128;  // ความกว้างจอเป็นพิกเซล
 const int OLED_H = 64;   // ความสูงจอเป็นพิกเซล
@@ -309,63 +308,6 @@ bool pingDisplay() {
   return Wire.endTransmission() == 0;
 }
 
-// ปลดล็อกบัส I2C ที่ค้าง
-// ถ้าสัญญาณถูกรบกวนกลางคันระหว่างที่จอกำลังส่งบิตตอบกลับ จอจะกดสาย SDA ค้างไว้ที่ LOW
-// รอให้ ESP32 สับนาฬิกาต่อจนครบไบต์ แต่ ESP32 ถือว่าจบรายการไปแล้ว บัสเลยค้างถาวร
-// ทุกคำสั่งหลังจากนั้นล้มหมดจนกว่าจะรีเซ็ต แก้ได้ด้วยการสับนาฬิกาให้ครบ 9 ครั้งแล้วส่ง STOP
-bool recoverI2CBus() {
-  Wire.end();
-  pinMode(OLED_SDA_PIN, INPUT_PULLUP);   // ปล่อยสาย SDA ให้จอเป็นคนกำหนดระดับ
-  pinMode(OLED_SCL_PIN, OUTPUT);
-
-  // สับนาฬิกาทีละครั้งแล้วดูว่าจอปล่อยสาย SDA หรือยัง
-  // ปกติจอจะปล่อยภายใน 9 ครั้ง คือความยาวของหนึ่งไบต์บวกบิตตอบรับ
-  int pulses = 0;
-  while (digitalRead(OLED_SDA_PIN) == LOW && pulses < OLED_RECOVER_PULSES) {
-    digitalWrite(OLED_SCL_PIN, LOW);  delayMicroseconds(5);
-    digitalWrite(OLED_SCL_PIN, HIGH); delayMicroseconds(5);
-    pulses++;
-  }
-  bool freed = (digitalRead(OLED_SDA_PIN) == HIGH);
-
-  if (freed) {                           // สร้างสัญญาณ STOP ปิดท้ายให้ถูกจังหวะ
-    pinMode(OLED_SDA_PIN, OUTPUT);
-    digitalWrite(OLED_SDA_PIN, LOW);  delayMicroseconds(5);
-    digitalWrite(OLED_SCL_PIN, HIGH); delayMicroseconds(5);
-    digitalWrite(OLED_SDA_PIN, HIGH); delayMicroseconds(5);
-  }
-
-  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-  Wire.setClock(OLED_I2C_HZ);
-
-  Serial.print("  ปลดล็อกบัส: สับนาฬิกา ");
-  Serial.print(pulses);
-  Serial.println(freed ? " ครั้ง -> สาย SDA ว่างแล้ว" : " ครั้ง -> สาย SDA ยังถูกกดค้าง ไม่ใช่บัสล็อกธรรมดา");
-  return freed;
-}
-
-// ไล่เรียกทุกแอดเดรสบนบัสแล้วรายงานว่าใครตอบบ้าง
-// ใช้ตอนหาจอไม่เจอ เพื่อแยกว่า "ไม่มีอะไรต่ออยู่เลย" กับ "มีจอแต่คนละแอดเดรส"
-void scanI2CBus() {
-  int found = 0;
-  for (uint8_t a = 1; a < 127; a++) {
-    Wire.beginTransmission(a);
-    if (Wire.endTransmission() == 0) {
-      Serial.print("  เจออุปกรณ์ที่ 0x");
-      Serial.println(a, HEX);
-      found++;
-    }
-  }
-  if (found == 0) {
-    Serial.println("  ไม่เจออุปกรณ์ใดๆ บนบัสเลย");
-    Serial.print("  เช็กว่าสายจอย้ายมาที่ SDA=GPIO");
-    Serial.print(OLED_SDA_PIN);
-    Serial.print(" SCL=GPIO");
-    Serial.print(OLED_SCL_PIN);
-    Serial.println(" แล้วหรือยัง และ VCC กับ GND ต่อครบไหม");
-  }
-}
-
 // สั่ง init ครั้งเดียวโดยไม่รอ ใช้ตอนที่รู้แล้วว่าจอตอบรับอยู่
 bool beginDisplayOnce() {
 #if OLED_DRIVER_SH1106
@@ -516,12 +458,11 @@ void watchDisplay() {
     Serial.println("จอหลุดไป เช็กสายด้วย");
   }
 
-  // ปลดล็อกบัสเฉพาะตอนที่มีสายถูกกดค้างอยู่จริงเท่านั้น
-  // ถ้าสายว่างทั้งคู่แล้วยังไปยุ่งกับมัน จะกลายเป็นทำลายบัสที่ยังดีอยู่เสียเอง
-  if (digitalRead(OLED_SDA_PIN) == LOW || digitalRead(OLED_SCL_PIN) == LOW) {
-    recoverI2CBus();
-  }
+  // ไม่ไปยุ่งกับขา I2C เอง การสั่ง Wire.end() แล้วขับขาเป็น output ธรรมดา
+  // ทำให้เพอริเฟอรัล I2C ของ ESP32 ค้างจนต้องรีเซ็ตบอร์ดถึงจะกลับมา
+  // แค่เคาะถามต่อไปเรื่อยๆ พอจอกลับมาตอบเมื่อไหร่ค่อยสั่ง init ใหม่
 }
+
 
 
 // เลือกว่าตอนนี้จอควรแสดงอะไร แล้ววาดให้แค่เท่าที่จำเป็น
