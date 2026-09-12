@@ -9,14 +9,14 @@
 // ใช้โหมด page addressing ซึ่งชิป OLED ทุกตัวรองรับ
 // ต่างจากไลบรารี Adafruit_SSD1306 ที่ใช้ horizontal addressing ซึ่ง SH1106 ไม่มี
 //
-// ต่อสาย: SDA -> GPIO21, SCL -> GPIO22, VCC -> 3V3, GND -> GND
+// ต่อสาย: SDA -> GPIO32, SCL -> GPIO33, VCC -> 3V3, GND -> GND
 // เปิด Serial Monitor ที่ 115200
 // ======================================================
 
 #include <Wire.h>
 
-const int SDA_PIN = 21;
-const int SCL_PIN = 22;
+const int SDA_PIN = 32;
+const int SCL_PIN = 33;
 const int WIDTH = 128;
 
 uint8_t addr = 0x3C;  // จะถูกแทนที่ด้วยค่าที่สแกนเจอ
