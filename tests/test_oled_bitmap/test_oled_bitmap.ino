@@ -21,6 +21,7 @@
 const int OLED_SDA_PIN = 21;
 const int OLED_SCL_PIN = 22;
 const uint8_t OLED_ADDR = 0x3C;
+const int LED_PIN = 2;   // ไฟ LED บนบอร์ด ESP32 DevKit ส่วนใหญ่อยู่ที่ขานี้
 // ความสว่างของจอ 0x00 ถึง 0xFF -- คุมกระแสที่ป้อนให้แต่ละพิกเซลโดยตรง
 // ค่ายิ่งต่ำยิ่งกินไฟน้อย ช่วยได้มากถ้าไฟเลี้ยงไม่นิ่งจนบอร์ดรีเซ็ตตัวเองตอนวาดรูปที่ติดไฟเยอะ
 // 0x30 สว่างพออ่านได้สบายในร่ม ถ้าอยากสว่างขึ้นไล่ขึ้นทีละ 0x10
@@ -66,6 +67,7 @@ bool waitForDisplay() {
 }
 
 void setup() {
+  pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
   delay(400);
   Serial.println("\n=== ทดสอบวาด bitmap บนจอ SH1106 ===");
@@ -90,13 +92,38 @@ void setup() {
   delay(3000);
 }
 
+// เคาะถามจอว่ายังตอบอยู่ไหม โดยส่งคำสั่ง NOP ที่ไม่เปลี่ยนอะไรบนจอ
+bool displayAlive() {
+  Wire.beginTransmission(OLED_ADDR);
+  Wire.write(0x00);
+  Wire.write(0xE3);
+  return Wire.endTransmission() == 0;
+}
+
 void loop() {
   for (int i = 0; i < FRAME_COUNT; i++) {
     display.clearDisplay();
     display.drawBitmap(0, 0, FRAMES[i].bmp, OLED_BMP_W, OLED_BMP_H, SH110X_WHITE);
     display.display();
-    Serial.printf("แสดงรูป: %s\n", FRAMES[i].name);
-    delay(2000);
+
+    bool alive = displayAlive();
+    Serial.print("แสดงรูป: ");
+    Serial.print(FRAMES[i].name);
+    Serial.println(alive ? "   จอตอบรับ" : "   จอไม่ตอบแล้ว");
+
+    // ใช้ไฟ LED บนบอร์ดรายงานสถานะ จะได้อ่านผลได้ไม่ต้องเปิด Serial Monitor
+    //   กะพริบช้าๆ เฟรมละครั้ง = โปรแกรมยังวิ่งอยู่ และจอยังตอบรับ
+    //   กะพริบถี่รัวๆ            = โปรแกรมยังวิ่ง แต่จอหยุดตอบแล้ว
+    //   ดับสนิทไม่ขยับ          = โปรแกรมค้างหรือบอร์ดรีเซ็ต
+    if (alive) {
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      delay(2000);
+    } else {
+      for (int k = 0; k < 20; k++) {
+        digitalWrite(LED_PIN, k % 2);
+        delay(100);
+      }
+    }
   }
   Serial.println("--- ครบรอบ เริ่มใหม่ ---");
 }
