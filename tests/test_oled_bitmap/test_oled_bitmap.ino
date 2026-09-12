@@ -102,6 +102,10 @@ bool displayAlive() {
 
 void loop() {
   for (int i = 0; i < FRAME_COUNT; i++) {
+    // สั่ง init ใหม่ก่อนวาดทุกเฟรม เพื่อทดสอบสมมติฐานว่าชิปจอค้างกลางคำสั่ง
+    // ถ้าภาพเดินครบทุกรอบหลังเพิ่มบรรทัดนี้ แปลว่านี่คือสาเหตุจริง
+    display.begin(OLED_ADDR, false);
+    display.setContrast(OLED_CONTRAST);
     display.clearDisplay();
     display.drawBitmap(0, 0, FRAMES[i].bmp, OLED_BMP_W, OLED_BMP_H, SH110X_WHITE);
     display.display();
