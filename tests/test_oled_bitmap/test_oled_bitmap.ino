@@ -9,7 +9,7 @@
 //   จอดำตลอด            -> ปัญหาอยู่ที่การวาด bitmap เอง
 //
 // ต้องมีไลบรารี Adafruit SH110X และ Adafruit GFX
-// ต่อสาย: SDA -> GPIO21, SCL -> GPIO22, VCC -> 3V3, GND -> GND
+// ต่อสาย: SDA -> GPIO32, SCL -> GPIO33, VCC -> 3V3, GND -> GND
 // ======================================================
 
 #include <Wire.h>
@@ -18,8 +18,8 @@
 
 #include "animal_bitmaps.h"  // สำเนาจาก esp32_remote_controller/
 
-const int OLED_SDA_PIN = 21;
-const int OLED_SCL_PIN = 22;
+const int OLED_SDA_PIN = 32;
+const int OLED_SCL_PIN = 33;
 const uint8_t OLED_ADDR = 0x3C;
 
 Adafruit_SH1106G display(128, 64, &Wire, -1);

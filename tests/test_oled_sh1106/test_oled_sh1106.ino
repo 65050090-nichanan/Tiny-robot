@@ -7,7 +7,7 @@
 //
 // ต้องลงไลบรารี "Adafruit SH110X" ก่อน (Tools -> Manage Libraries)
 //
-// ต่อสายเหมือนเดิม: SDA -> GPIO21, SCL -> GPIO22, VCC -> 3V3, GND -> GND
+// ต่อสายเหมือนเดิม: SDA -> GPIO32, SCL -> GPIO33, VCC -> 3V3, GND -> GND
 //
 // ถ้าสเก็ตช์นี้ทำให้จอขาวเต็มและข้อความอ่านออก = ยืนยันว่าเป็น SH1106
 // ให้กลับไปตั้ง OLED_DRIVER_SH1106 เป็น 1 ในสเก็ตช์หลัก
@@ -17,8 +17,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 
-const int OLED_SDA_PIN = 21;
-const int OLED_SCL_PIN = 22;
+const int OLED_SDA_PIN = 32;
+const int OLED_SCL_PIN = 33;
 const uint8_t OLED_ADDR = 0x3C;
 
 Adafruit_SH1106G display(128, 64, &Wire, -1);

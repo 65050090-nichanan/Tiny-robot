@@ -104,10 +104,12 @@ The physical pins for `Serial2` and `Serial3` depend on the STM32 board/core con
 
 | Function | Pin |
 |---|---|
-| OLED SDA | GPIO21 |
-| OLED SCL | GPIO22 |
+| OLED SDA | GPIO32 |
+| OLED SCL | GPIO33 |
 | To STM32 Serial2 RX (PA3) | GPIO17 (TX) |
 | From STM32 Serial2 TX (PA2) | GPIO16 (RX) |
+
+The OLED sits on GPIO32/33 rather than the usual GPIO21/22 because GPIO21 on this particular board is damaged: it reads high with nothing attached, but drops low the moment anything is wired to it, as either SDA or SCL. Every other pin tested clean. A replacement board can go back to 21/22.
 
 The OLED is an I2C 128x64 module at address `0x3C`. Change `OLED_ADDR` in the sketch if your module uses `0x3D`. If the display is missing, the sketch prints a warning and everything else still runs.
 
