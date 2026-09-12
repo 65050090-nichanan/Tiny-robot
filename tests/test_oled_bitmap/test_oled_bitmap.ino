@@ -21,6 +21,10 @@
 const int OLED_SDA_PIN = 21;
 const int OLED_SCL_PIN = 22;
 const uint8_t OLED_ADDR = 0x3C;
+// ความสว่างของจอ 0x00 ถึง 0xFF -- คุมกระแสที่ป้อนให้แต่ละพิกเซลโดยตรง
+// ค่ายิ่งต่ำยิ่งกินไฟน้อย ช่วยได้มากถ้าไฟเลี้ยงไม่นิ่งจนบอร์ดรีเซ็ตตัวเองตอนวาดรูปที่ติดไฟเยอะ
+// 0x30 สว่างพออ่านได้สบายในร่ม ถ้าอยากสว่างขึ้นไล่ขึ้นทีละ 0x10
+const uint8_t OLED_CONTRAST = 0x30;
 
 Adafruit_SH1106G display(128, 64, &Wire, -1, 400000, 400000);
 
@@ -71,7 +75,7 @@ void setup() {
 
   waitForDisplay();
   display.begin(OLED_ADDR, false);
-  display.setContrast(0x7F);
+  display.setContrast(OLED_CONTRAST);
   Serial.println("เริ่มจอแล้ว");
 
   // ยืนยันก่อนว่าวาดเส้นธรรมดายังขึ้นอยู่ ถ้าขั้นนี้ยังไม่ขึ้นก็ไม่ต้องดูขั้นต่อไป

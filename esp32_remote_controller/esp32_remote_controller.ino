@@ -70,6 +70,10 @@ const uint8_t OLED_ADDR = 0x3C;  // แอดเดรส I2C ของจอ (�
 // ซึ่งกินเวลาของ loop จนหน้าเว็บและภาพเคลื่อนไหวหน่วงตามกันไปหมด
 // ถ้าจอเพี้ยนหรือหลุดหลังเพิ่มความเร็ว ให้ลองลดเป็น 200000 ก่อน
 const uint32_t OLED_I2C_HZ = 400000;
+// ความสว่างของจอ 0x00 ถึง 0xFF -- คุมกระแสที่ป้อนให้แต่ละพิกเซลโดยตรง
+// ค่ายิ่งต่ำยิ่งกินไฟน้อย ช่วยได้มากถ้าไฟเลี้ยงไม่นิ่งจนบอร์ดรีเซ็ตตัวเองตอนวาดรูปที่ติดไฟเยอะ
+// 0x30 สว่างพออ่านได้สบายในร่ม ถ้าอยากสว่างขึ้นไล่ขึ้นทีละ 0x10
+const uint8_t OLED_CONTRAST = 0x30;
 const int OLED_INIT_TRIES = 20;            // เคาะถามจอกี่ครั้งก่อนยอมแพ้
 const int OLED_INIT_WAIT_MS = 100;         // เว้นกี่มิลลิวินาทีระหว่างการเคาะแต่ละครั้ง
 const unsigned long OLED_CHECK_MS = 2000;
@@ -338,7 +342,7 @@ void scanI2CBus() {
 bool beginDisplayOnce() {
 #if OLED_DRIVER_SH1106
   display.begin(OLED_ADDR, false);  // false = ไม่ใช้ขา reset โมดูล I2C ไม่มีขานี้
-  display.setContrast(0x7F);
+  display.setContrast(OLED_CONTRAST);
   return true;
 #else
   return display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
