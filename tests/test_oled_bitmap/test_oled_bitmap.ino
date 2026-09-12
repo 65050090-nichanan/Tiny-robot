@@ -49,6 +49,46 @@ const Frame FRAMES[] = {
 };
 const int FRAME_COUNT = sizeof(FRAMES) / sizeof(FRAMES[0]);
 
+// ---------- ส่งภาพขึ้นจอเอง ไม่ผ่าน display() ของไลบรารี ----------
+// ไลบรารีส่งภาพเป็นก้อนใหญ่ ถ้าสัญญาณบนสายไม่นิ่งพอ ก้อนจะขาดกลางคัน
+// แล้วภาพเข้าจอไม่ครบเฟรม ซึ่งเป็นอาการที่เจออยู่
+//
+// ตัวนี้ส่งทีละหน้า (หนึ่งหน้า = 8 แถวพิกเซล) และแบ่งข้อมูลเป็นก้อนละ 16 ไบต์
+// ก้อนเล็กลงทำให้แต่ละรายการสั้นลง โอกาสขาดกลางคันน้อยลง
+// และถ้าหน้าไหนพลาด จะเสียแค่แถบเดียว ไม่ลามทั้งเฟรมเหมือนตอนส่งก้อนใหญ่
+//
+// ยังใช้ Adafruit_GFX วาดลงบัฟเฟอร์เหมือนเดิมทุกอย่าง เปลี่ยนแค่ขั้นตอนส่งออกจอ
+
+const uint8_t OLED_COL_OFFSET = 2;  // SH1106 มี RAM 132 คอลัมน์ แต่จอจริงเริ่มที่คอลัมน์ 2
+const int OLED_CHUNK = 16;          // ส่งข้อมูลภาพครั้งละกี่ไบต์
+
+// ส่งคำสั่งหนึ่งไบต์ไปที่จอ
+void oledCmd(uint8_t c) {
+  Wire.beginTransmission(OLED_ADDR);
+  Wire.write(0x00);   // ไบต์นำหน้าบอกว่าต่อไปเป็นคำสั่ง
+  Wire.write(c);
+  Wire.endTransmission();
+}
+
+void pushFrame() {
+  uint8_t *buf = display.getBuffer();
+  if (!buf) return;
+
+  for (uint8_t page = 0; page < 64 / 8; page++) {
+    oledCmd(0xB0 + page);                              // เลือกหน้าที่จะเขียน
+    oledCmd(0x00 | (OLED_COL_OFFSET & 0x0F));          // คอลัมน์เริ่มต้น 4 บิตล่าง
+    oledCmd(0x10 | ((OLED_COL_OFFSET >> 4) & 0x0F));   // คอลัมน์เริ่มต้น 4 บิตบน
+
+    const uint8_t *row = buf + (int)page * 128;
+    for (int x = 0; x < 128; x += OLED_CHUNK) {
+      Wire.beginTransmission(OLED_ADDR);
+      Wire.write(0x40);   // ไบต์นำหน้าบอกว่าต่อไปเป็นข้อมูลภาพ
+      Wire.write(row + x, OLED_CHUNK);
+      Wire.endTransmission();
+    }
+  }
+}
+
 void setup() {
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
@@ -70,7 +110,7 @@ void setup() {
   display.setTextSize(2);
   display.setCursor(14, 24);
   display.print("LINE OK");
-  display.display();
+  pushFrame();
   Serial.println("ขั้นที่ 1: วาดกรอบกับข้อความ -- ควรเห็นคำว่า LINE OK");
   delay(3000);
 }
@@ -79,7 +119,7 @@ void loop() {
   for (int i = 0; i < FRAME_COUNT; i++) {
     display.clearDisplay();
     display.drawBitmap(0, 0, FRAMES[i].bmp, OLED_BMP_W, OLED_BMP_H, SH110X_WHITE);
-    display.display();
+    pushFrame();
 
     Serial.print("แสดงรูป: ");
     Serial.println(FRAMES[i].name);
@@ -90,4 +130,3 @@ void loop() {
   }
   Serial.println("--- ครบรอบ เริ่มใหม่ ---");
 }
-

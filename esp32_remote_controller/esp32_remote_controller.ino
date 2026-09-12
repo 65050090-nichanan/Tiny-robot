@@ -348,13 +348,57 @@ bool initDisplay() {
 }
 
 
+// ---------- ส่งภาพขึ้นจอเอง ไม่ผ่าน display() ของไลบรารี ----------
+// ไลบรารีส่งภาพเป็นก้อนใหญ่ ถ้าสัญญาณบนสายไม่นิ่งพอ ก้อนจะขาดกลางคัน
+// แล้วภาพเข้าจอไม่ครบเฟรม ซึ่งเป็นอาการที่เจออยู่
+//
+// ตัวนี้ส่งทีละหน้า (หนึ่งหน้า = 8 แถวพิกเซล) และแบ่งข้อมูลเป็นก้อนละ 16 ไบต์
+// ก้อนเล็กลงทำให้แต่ละรายการสั้นลง โอกาสขาดกลางคันน้อยลง
+// และถ้าหน้าไหนพลาด จะเสียแค่แถบเดียว ไม่ลามทั้งเฟรมเหมือนตอนส่งก้อนใหญ่
+//
+// ยังใช้ Adafruit_GFX วาดลงบัฟเฟอร์เหมือนเดิมทุกอย่าง เปลี่ยนแค่ขั้นตอนส่งออกจอ
+
+#if OLED_DRIVER_SH1106
+const uint8_t OLED_COL_OFFSET = 2;  // SH1106 มี RAM 132 คอลัมน์ แต่จอจริงเริ่มที่คอลัมน์ 2
+#else
+const uint8_t OLED_COL_OFFSET = 0;  // SSD1306 เริ่มที่คอลัมน์ 0 พอดี
+#endif
+const int OLED_CHUNK = 16;          // ส่งข้อมูลภาพครั้งละกี่ไบต์
+
+// ส่งคำสั่งหนึ่งไบต์ไปที่จอ
+void oledCmd(uint8_t c) {
+  Wire.beginTransmission(OLED_ADDR);
+  Wire.write(0x00);   // ไบต์นำหน้าบอกว่าต่อไปเป็นคำสั่ง
+  Wire.write(c);
+  Wire.endTransmission();
+}
+
+void pushFrame() {
+  uint8_t *buf = display.getBuffer();
+  if (!buf) return;
+
+  for (uint8_t page = 0; page < OLED_H / 8; page++) {
+    oledCmd(0xB0 + page);                              // เลือกหน้าที่จะเขียน
+    oledCmd(0x00 | (OLED_COL_OFFSET & 0x0F));          // คอลัมน์เริ่มต้น 4 บิตล่าง
+    oledCmd(0x10 | ((OLED_COL_OFFSET >> 4) & 0x0F));   // คอลัมน์เริ่มต้น 4 บิตบน
+
+    const uint8_t *row = buf + (int)page * OLED_W;
+    for (int x = 0; x < OLED_W; x += OLED_CHUNK) {
+      Wire.beginTransmission(OLED_ADDR);
+      Wire.write(0x40);   // ไบต์นำหน้าบอกว่าต่อไปเป็นข้อมูลภาพ
+      Wire.write(row + x, OLED_CHUNK);
+      Wire.endTransmission();
+    }
+  }
+}
+
 // รูปทุกใบใน assets/oled/ วาดมาเต็มจอ 128x64 พร้อมตัวหนังสือในตัวอยู่แล้ว
 // จึงแค่พ่นลงจอตรงๆ ไม่ต้องพิมพ์ข้อความซ้อนทับ
 void drawFullScreen(const unsigned char *bitmap) {
   if (!hasOled) return;
   display.clearDisplay();
   display.drawBitmap(0, 0, bitmap, OLED_BMP_W, OLED_BMP_H, OLED_WHITE);
-  display.display();
+  pushFrame();
 }
 
 // หน้าจอต้อนรับตอนเปิดเครื่อง โชว์ระหว่างที่ยังตั้งค่า Wi-Fi อยู่
@@ -381,7 +425,7 @@ void drawIdleScreen() {
   display.print("CAM  : ");
   display.println(camIp.length() ? camIp : String("waiting"));
 
-  display.display();
+  pushFrame();
 }
 
 // หน้าจอกำลังสแกน เล่นวนตอนหุ่นเคลื่อนที่ จุดท้ายข้อความวิ่งตามเฟรมไปด้วย
