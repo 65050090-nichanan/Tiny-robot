@@ -308,6 +308,28 @@ bool pingDisplay() {
   return Wire.endTransmission() == 0;
 }
 
+// ไล่เรียกทุกแอดเดรสบนบัสแล้วรายงานว่าใครตอบบ้าง
+// ใช้ตอนหาจอไม่เจอ เพื่อแยกว่า "ไม่มีอะไรต่ออยู่เลย" กับ "มีจอแต่คนละแอดเดรส"
+void scanI2CBus() {
+  int found = 0;
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("  เจออุปกรณ์ที่ 0x");
+      Serial.println(a, HEX);
+      found++;
+    }
+  }
+  if (found == 0) {
+    Serial.println("  ไม่เจออุปกรณ์ใดๆ บนบัสเลย");
+    Serial.print("  เช็กว่าสายจอย้ายมาที่ SDA=GPIO");
+    Serial.print(OLED_SDA_PIN);
+    Serial.print(" SCL=GPIO");
+    Serial.print(OLED_SCL_PIN);
+    Serial.println(" แล้วหรือยัง และ VCC กับ GND ต่อครบไหม");
+  }
+}
+
 // สั่ง init ครั้งเดียวโดยไม่รอ ใช้ตอนที่รู้แล้วว่าจอตอบรับอยู่
 bool beginDisplayOnce() {
 #if OLED_DRIVER_SH1106
