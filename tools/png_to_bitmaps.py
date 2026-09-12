@@ -5,7 +5,8 @@
 จำเป็นเพราะรูปชุด scan วาดมาด้วยความสว่างต่ำ (สูงสุดแค่ 84-142 จาก 255)
 ถ้าใช้เส้นแบ่งตายตัวที่ 128 รูปชุดนั้นจะกลายเป็นดำสนิททั้งภาพ
 
-วิธีใช้:  py tools/png_to_bitmaps.py
+วิธีใช้:  py tools/png_to_bitmaps.py            ภาพทึบตามต้นฉบับ
+         py tools/png_to_bitmaps.py --outline  เก็บเฉพาะเส้นขอบ กินไฟน้อยกว่า
 ผลลัพธ์:  esp32_remote_controller/animal_bitmaps.h  (และแสดงภาพตัวอย่างเป็น ASCII)
 
 อยากเปลี่ยนรูปก็แก้ไฟล์ PNG ใน assets/oled/ แล้วรันใหม่ ไม่ต้องแตะโค้ด
@@ -14,7 +15,7 @@
 
 import os
 import sys
-from PIL import Image
+from PIL import Image, ImageFilter
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -59,6 +60,29 @@ def load_mono(path):
     return img.point(lambda p: 255 if p > thr else 0, mode="1"), thr
 
 
+def to_outline(mono):
+    """เก็บเฉพาะพิกเซลที่อยู่ขอบของรูป เพื่อให้จอติดไฟน้อยลง
+
+    วิธีคือเอาภาพเดิมลบด้วยภาพที่ถูกกัดขอบเข้ามาหนึ่งพิกเซล
+    พื้นที่ทึบใหญ่ๆ จะเหลือแค่โครงร่าง แต่เส้นบางอย่างตัวหนังสือจะถูกเก็บไว้ครบ
+    เพราะพอกัดขอบทีเดียวมันหายไปทั้งเส้น ผลต่างจึงคือตัวมันเองทั้งหมด
+    """
+    grey = mono.convert("L")
+    eroded = grey.filter(ImageFilter.MinFilter(3))  # กัดขอบเข้ามา 1 พิกเซล
+    src, ero = grey.load(), eroded.load()
+    out = Image.new("1", (W, H), 0)
+    dst = out.load()
+    for y in range(H):
+        for x in range(W):
+            dst[x, y] = 1 if (src[x, y] and not ero[x, y]) else 0
+    return out
+
+
+def count_lit(mono):
+    px = mono.load()
+    return sum(1 for y in range(H) for x in range(W) if px[x, y])
+
+
 def to_bytes(mono):
     """รูปแบบที่ Adafruit_GFX ต้องการ: 1 บิตต่อพิกเซล เรียงบิตจากซ้ายไปขวา"""
     px = mono.load()
@@ -89,8 +113,12 @@ def main():
     if not ordered:
         sys.exit(f"ไม่เจอไฟล์ .png ใน {SRC_DIR}")
 
+    outline = "--outline" in sys.argv
+    mode_note = "เก็บเฉพาะเส้นขอบเพื่อให้จอกินไฟน้อยลง" if outline else "ภาพทึบตามต้นฉบับ"
+
     lines = [
         "// สร้างอัตโนมัติโดย tools/png_to_bitmaps.py -- อย่าแก้ไฟล์นี้ด้วยมือ",
+        "// โหมด: " + mode_note,
         "// ต้นฉบับเป็นไฟล์ PNG ใน assets/oled/ อยากเปลี่ยนรูปให้แก้ที่นั่นแล้วรันสคริปต์ใหม่",
         f"// รูปขาวดำ {W}x{H} เต็มจอ สำหรับ OLED SSD1306 (ใช้กับ Adafruit_GFX drawBitmap)",
         "#pragma once",
@@ -101,9 +129,16 @@ def main():
         "",
     ]
 
+    total_before = total_after = 0
     for stem in ordered:
         mono, thr = load_mono(os.path.join(SRC_DIR, stem + ".png"))
-        preview(f"{stem}  (otsu={thr})", mono)
+        before = count_lit(mono)
+        if outline:
+            mono = to_outline(mono)
+        after = count_lit(mono)
+        total_before += before
+        total_after += after
+        preview(f"{stem}  (otsu={thr}, ติดไฟ {after} พิกเซล)", mono)
         data = to_bytes(mono)
         lines.append(f"// จาก assets/oled/{stem}.png")
         lines.append(f"const unsigned char PROGMEM bmp_{stem.lower()}[] = {{")
@@ -118,6 +153,12 @@ def main():
     size = W * H // 8
     print(f"\nเขียนไฟล์แล้ว: {OUT_HEADER}")
     print(f"{len(ordered)} รูป x {size} ไบต์ = {len(ordered) * size} ไบต์ใน PROGMEM")
+    print(f"โหมด: {mode_note}")
+    if outline and total_before:
+        cut = 100 - total_after * 100 // total_before
+        print(f"พิกเซลที่ติดไฟรวม {total_before} -> {total_after} (ลดลง {cut}%)")
+    else:
+        print(f"พิกเซลที่ติดไฟรวม {total_after}")
     print("ตัวแปรที่ได้: " + ", ".join(f"bmp_{s.lower()}" for s in ordered))
 
 
