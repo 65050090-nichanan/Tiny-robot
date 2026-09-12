@@ -21,7 +21,24 @@ const int OLED_SDA_PIN = 21;
 const int OLED_SCL_PIN = 22;
 const uint8_t OLED_ADDR = 0x3C;
 
-Adafruit_SH1106G display(128, 64, &Wire, -1);
+Adafruit_SH1106G display(128, 64, &Wire, -1, 400000, 400000);
+
+// รอจนจอตอบรับก่อนค่อยสั่ง init
+// วงจรภายในจอตั้งตัวช้ากว่า ESP32 บูตเสร็จ ถ้ายิงคำสั่งไปตอนจอยังไม่พร้อม
+// คำสั่งจะหายไปเงียบๆ แล้วจอค้างดำทั้งที่สายดีอยู่
+bool waitForDisplay() {
+  for (int attempt = 1; attempt <= 20; attempt++) {
+    Wire.beginTransmission(OLED_ADDR);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("จอตอบรับในครั้งที่ ");
+      Serial.println(attempt);
+      return true;
+    }
+    delay(100);
+  }
+  Serial.println("จอไม่ตอบรับเลย -- เช็กสาย VCC GND SDA SCL");
+  return false;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -29,8 +46,9 @@ void setup() {
   Serial.println("\n=== ทดสอบจอด้วยไดรเวอร์ SH1106 ===");
 
   Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-  Wire.setClock(100000);
+  Wire.setClock(400000);
 
+  waitForDisplay();
   // พารามิเตอร์ตัวที่สองคือ reset ตั้ง false เพราะโมดูล I2C ไม่มีขา reset
   display.begin(OLED_ADDR, false);
   display.setContrast(0x7F);
