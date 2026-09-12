@@ -70,14 +70,11 @@ const uint8_t OLED_ADDR = 0x3C;  // แอดเดรส I2C ของจอ (�
 // ซึ่งกินเวลาของ loop จนหน้าเว็บและภาพเคลื่อนไหวหน่วงตามกันไปหมด
 // ถ้าจอเพี้ยนหรือหลุดหลังเพิ่มความเร็ว ให้ลองลดเป็น 200000 ก่อน
 const uint32_t OLED_I2C_HZ = 400000;
+const int OLED_BOOT_WAIT_MS = 300;         // รอกี่มิลลิวินาทีก่อนสั่ง init ให้จอตั้งตัวเสร็จ
 // ความสว่างของจอ 0x00 ถึง 0xFF -- คุมกระแสที่ป้อนให้แต่ละพิกเซลโดยตรง
 // ค่ายิ่งต่ำยิ่งกินไฟน้อย ช่วยได้มากถ้าไฟเลี้ยงไม่นิ่งจนบอร์ดรีเซ็ตตัวเองตอนวาดรูปที่ติดไฟเยอะ
 // 0x30 สว่างพออ่านได้สบายในร่ม ถ้าอยากสว่างขึ้นไล่ขึ้นทีละ 0x10
 const uint8_t OLED_CONTRAST = 0x30;
-const int OLED_INIT_TRIES = 20;            // เคาะถามจอกี่ครั้งก่อนยอมแพ้
-const int OLED_INIT_WAIT_MS = 100;         // เว้นกี่มิลลิวินาทีระหว่างการเคาะแต่ละครั้ง
-const unsigned long OLED_CHECK_MS = 2000;
-const int OLED_FAIL_LIMIT = 3;             // เคาะถามพลาดติดกันกี่ครั้งถึงถือว่าจอหลุดจริง
 const int OLED_W = 128;  // ความกว้างจอเป็นพิกเซล
 const int OLED_H = 64;   // ความสูงจอเป็นพิกเซล
 
@@ -306,16 +303,6 @@ window.onload = initWebSocket;
 // ถ้ายิงคำสั่ง init ไปตอนจอยังไม่พร้อม คำสั่งจะหายไปเงียบๆ แล้วจอค้างดำทั้งที่สายดีอยู่
 // อาการคือเดี๋ยวขึ้นเดี๋ยวไม่ขึ้น เปลี่ยนไปตามจังหวะที่เสียบไฟ
 // จึงต้องเคาะถามก่อนว่าจอตอบรับหรือยัง แล้วค่อยสั่ง init
-// เคาะถามจอด้วยคำสั่ง NOP ซึ่งไม่เปลี่ยนอะไรบนจอเลย
-// ต้องส่งข้อมูลจริงอย่างน้อยหนึ่งไบต์ เพราะรายการเปล่าที่ไม่มีข้อมูล
-// ไดรเวอร์ I2C ของ ESP32 อาจคืนค่าล้มเหลวได้ทั้งที่จอยังดีอยู่
-bool pingDisplay() {
-  Wire.beginTransmission(OLED_ADDR);
-  Wire.write(0x00);   // ไบต์นำหน้าบอกว่าต่อไปเป็นคำสั่ง
-  Wire.write(0xE3);   // NOP
-  return Wire.endTransmission() == 0;
-}
-
 // ไล่เรียกทุกแอดเดรสบนบัสแล้วรายงานว่าใครตอบบ้าง
 // ใช้ตอนหาจอไม่เจอ เพื่อแยกว่า "ไม่มีอะไรต่ออยู่เลย" กับ "มีจอแต่คนละแอดเดรส"
 void scanI2CBus() {
@@ -352,20 +339,14 @@ bool beginDisplayOnce() {
 // วนรอจนจอตอบรับแล้วค่อยสั่ง init -- ใช้เฉพาะใน setup() เท่านั้น
 // ห้ามเรียกจาก loop() เพราะบล็อกได้นานถึง 2 วินาที ซึ่งจะทำให้หน้าเว็บค้าง
 bool initDisplay() {
-  for (int attempt = 1; attempt <= OLED_INIT_TRIES; attempt++) {
-    if (pingDisplay() && beginDisplayOnce()) {
-      Serial.print("เริ่มจอสำเร็จในครั้งที่ ");
-      Serial.println(attempt);
-      return true;
-    }
-    delay(OLED_INIT_WAIT_MS);
-  }
-  Serial.print("จอไม่ตอบที่ 0x");
-  Serial.print(OLED_ADDR, HEX);
-  Serial.println(" กำลังไล่สแกนทั้งบัส");
-  scanI2CBus();
-  return false;
+  // รอให้วงจรภายในจอตั้งตัวเสร็จก่อน ซึ่งช้ากว่าตอน ESP32 บูตเสร็จ
+  // ถ้ายิงคำสั่ง init ไปเร็วเกินคำสั่งจะหายไปเงียบๆ แล้วจอค้างดำ
+  delay(OLED_BOOT_WAIT_MS);
+  beginDisplayOnce();
+  Serial.println("สั่งเริ่มจอแล้ว");
+  return true;
 }
+
 
 // รูปทุกใบใน assets/oled/ วาดมาเต็มจอ 128x64 พร้อมตัวหนังสือในตัวอยู่แล้ว
 // จึงแค่พ่นลงจอตรงๆ ไม่ต้องพิมพ์ข้อความซ้อนทับ
@@ -456,54 +437,6 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
   sendToStm32(msg);  // ส่งต่อทุกคำสั่งให้ STM32 เป็นคนตัดสินใจ
   idleDirty = true;  // ขอให้ loop() วาดจอสถานะใหม่เมื่อถึงคิว
 }
-
-// เคาะถามจอเป็นระยะ ถ้าเพิ่งกลับมาให้สั่ง init ใหม่แล้ววาดใหม่
-// จำเป็นเพราะจอที่ต่อด้วยสายดูปองต์หลุดชั่วขณะได้ง่าย และพอไฟกลับมาจอจะลืมค่าที่ตั้งไว้ทั้งหมด
-void watchDisplay() {
-  static unsigned long lastCheck = 0;
-  static int failStreak = 0;
-  if (millis() - lastCheck < OLED_CHECK_MS) return;
-  lastCheck = millis();
-
-  if (pingDisplay()) {
-    failStreak = 0;
-    if (!hasOled) {
-      Serial.println("จอกลับมาแล้ว กำลังเริ่มใหม่");
-      hasOled = beginDisplayOnce();   // ครั้งเดียว ไม่วนรอ จะได้ไม่บล็อก loop
-      if (hasOled) {
-        idleDirty = true;             // บังคับให้วาดหน้าสถานะใหม่ทันที
-        animalDrawn = false;
-        detectDrawn = false;
-      }
-    }
-    return;
-  }
-
-  // ยอมให้พลาดได้บ้าง สัญญาณรบกวนชั่วครู่ไม่ควรทำให้ตัดสินว่าจอหลุด
-  failStreak++;
-  if (failStreak < OLED_FAIL_LIMIT) return;
-
-  if (hasOled) {
-    hasOled = false;
-    Serial.println("จอหลุดไป เช็กสายด้วย");
-  }
-
-  // SCL ค้างที่ LOW คือฝั่งมาสเตอร์ ไม่ใช่ฝั่งจอ
-  // จอไม่มีเหตุผลที่จะกดสายนาฬิกาค้าง (SH1106 ไม่ทำ clock stretching)
-  // แต่เพอริเฟอรัล I2C ของ ESP32 ค้างกลางรายการได้ถ้าการรับส่งถูกตัดกลางคัน
-  // แล้วมันจะปล่อย SCL ทิ้งไว้ที่ LOW จนกว่าจะเริ่มใหม่
-  //
-  // การเริ่ม Wire ใหม่แตะแค่ตัวเพอริเฟอรัล ไม่ไปขับขาเอง
-  // ต่างจากโค้ดกู้บัสเวอร์ชันก่อนที่สั่ง pinMode เป็น OUTPUT แล้วทำให้บัสพังซ้ำ
-  if (digitalRead(OLED_SCL_PIN) == LOW) {
-    Serial.println("  SCL ค้าง กำลังเริ่ม I2C ใหม่");
-    Wire.end();
-    Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-    Wire.setClock(OLED_I2C_HZ);
-  }
-}
-
-
 
 // เลือกว่าตอนนี้จอควรแสดงอะไร แล้ววาดให้แค่เท่าที่จำเป็น
 // ลำดับความสำคัญ: เจอแล้ว -> รูปสัตว์ -> กำลังสแกน -> หน้าสถานะ
@@ -650,19 +583,12 @@ void loop() {
     Serial.println("ขาดการติดต่อกับกล้อง");
   }
 
-  watchDisplay();  // สายหลวมหรือไฟกระชากทำให้จอหลุดได้ ถ้าหลุดแล้วกลับมาให้เริ่มใหม่เอง
   updateScreen();  // เครื่องสถานะของจอ ตัดสินใจเองว่ารอบนี้ต้องวาดอะไรไหม
 
   // เต้นหัวใจทุก 5 วินาที ไว้ดูว่าบอร์ดยังไม่ค้างและสถานะจอเป็นยังไง
   static unsigned long lastBeat = 0;
   if (millis() - lastBeat > 5000) {
     lastBeat = millis();
-    if (!hasOled) {   // จอเงียบ ดูระดับไฟบนสายเพื่อแยกว่าสายหลุดหรือบัสค้าง
-      Serial.print("  SDA=");
-      Serial.print(digitalRead(OLED_SDA_PIN) ? "HIGH" : "LOW(ค้าง)");
-      Serial.print("  SCL=");
-      Serial.println(digitalRead(OLED_SCL_PIN) ? "HIGH" : "LOW(ค้าง)");
-    }
     Serial.printf("ยังทำงานอยู่ %lus | hasOled=%d isMoving=%d animal=%d cam=%s\n",
                   millis() / 1000, hasOled, isMoving, currentAnimal,
                   camIp.length() ? camIp.c_str() : "-");

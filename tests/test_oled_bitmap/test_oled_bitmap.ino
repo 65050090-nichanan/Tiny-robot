@@ -49,23 +49,6 @@ const Frame FRAMES[] = {
 };
 const int FRAME_COUNT = sizeof(FRAMES) / sizeof(FRAMES[0]);
 
-// รอจนจอตอบรับก่อนค่อยสั่ง init
-// วงจรภายในจอตั้งตัวช้ากว่า ESP32 บูตเสร็จ ถ้ายิงคำสั่งไปตอนจอยังไม่พร้อม
-// คำสั่งจะหายไปเงียบๆ แล้วจอค้างดำทั้งที่สายดีอยู่
-bool waitForDisplay() {
-  for (int attempt = 1; attempt <= 20; attempt++) {
-    Wire.beginTransmission(OLED_ADDR);
-    if (Wire.endTransmission() == 0) {
-      Serial.print("จอตอบรับในครั้งที่ ");
-      Serial.println(attempt);
-      return true;
-    }
-    delay(100);
-  }
-  Serial.println("จอไม่ตอบรับเลย -- เช็กสาย VCC GND SDA SCL");
-  return false;
-}
-
 void setup() {
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
@@ -75,7 +58,7 @@ void setup() {
   Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
   Wire.setClock(400000);
 
-  waitForDisplay();
+  delay(300);   // รอให้จอตั้งตัวเสร็จก่อนสั่ง init
   display.begin(OLED_ADDR, false);
   display.setContrast(OLED_CONTRAST);
   Serial.println("เริ่มจอแล้ว");
@@ -92,42 +75,19 @@ void setup() {
   delay(3000);
 }
 
-// เคาะถามจอว่ายังตอบอยู่ไหม โดยส่งคำสั่ง NOP ที่ไม่เปลี่ยนอะไรบนจอ
-bool displayAlive() {
-  Wire.beginTransmission(OLED_ADDR);
-  Wire.write(0x00);
-  Wire.write(0xE3);
-  return Wire.endTransmission() == 0;
-}
-
 void loop() {
   for (int i = 0; i < FRAME_COUNT; i++) {
-    // สั่ง init ใหม่ก่อนวาดทุกเฟรม เพื่อทดสอบสมมติฐานว่าชิปจอค้างกลางคำสั่ง
-    // ถ้าภาพเดินครบทุกรอบหลังเพิ่มบรรทัดนี้ แปลว่านี่คือสาเหตุจริง
-    display.begin(OLED_ADDR, false);
-    display.setContrast(OLED_CONTRAST);
     display.clearDisplay();
     display.drawBitmap(0, 0, FRAMES[i].bmp, OLED_BMP_W, OLED_BMP_H, SH110X_WHITE);
     display.display();
 
-    bool alive = displayAlive();
     Serial.print("แสดงรูป: ");
-    Serial.print(FRAMES[i].name);
-    Serial.println(alive ? "   จอตอบรับ" : "   จอไม่ตอบแล้ว");
+    Serial.println(FRAMES[i].name);
 
-    // ใช้ไฟ LED บนบอร์ดรายงานสถานะ จะได้อ่านผลได้ไม่ต้องเปิด Serial Monitor
-    //   กะพริบช้าๆ เฟรมละครั้ง = โปรแกรมยังวิ่งอยู่ และจอยังตอบรับ
-    //   กะพริบถี่รัวๆ            = โปรแกรมยังวิ่ง แต่จอหยุดตอบแล้ว
-    //   ดับสนิทไม่ขยับ          = โปรแกรมค้างหรือบอร์ดรีเซ็ต
-    if (alive) {
-      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-      delay(2000);
-    } else {
-      for (int k = 0; k < 20; k++) {
-        digitalWrite(LED_PIN, k % 2);
-        delay(100);
-      }
-    }
+    // ไฟ LED สลับทุกเฟรม ไว้ดูว่าโปรแกรมยังวิ่งอยู่ไหม โดยไม่ต้องเปิด Serial Monitor
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    delay(2000);
   }
   Serial.println("--- ครบรอบ เริ่มใหม่ ---");
 }
+
