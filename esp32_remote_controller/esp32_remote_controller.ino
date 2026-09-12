@@ -14,7 +14,7 @@
 //   เจอแล้ว  - เครื่องหมายถูกกระพริบ 1 วินาที แล้วเปลี่ยนเป็นรูปสัตว์จนครบ 5 วินาที
 //
 // การต่อสาย
-//   OLED SSD1306 (I2C):  SDA -> GPIO32, SCL -> GPIO33, VCC -> 3V3, GND -> GND
+//   OLED SSD1306 (I2C):  SDA -> GPIO21, SCL -> GPIO22, VCC -> 3V3, GND -> GND
 //   ไปหา STM32 (UART2):  GPIO17 (TX) -> STM32 Serial2 RX (PA3)
 //                        GPIO16 (RX) <- STM32 Serial2 TX (PA2)   (ไม่ใช้ก็ได้)
 //                        ต้องต่อ GND ร่วมกันด้วย
@@ -59,8 +59,8 @@ const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อม
 const int STM32_TX_PIN = 17;  // ขา TX ของ ESP32 ส่งคำสั่งไป STM32
 const long STM32_BAUD = 115200;  // ความเร็วสื่อสารกับ STM32 ต้องตรงกับฝั่ง STM32
 
-const int OLED_SDA_PIN = 22;  // ขา SDA ของจอ OLED
-const int OLED_SCL_PIN = 21;  // ขา SCL ของจอ OLED
+const int OLED_SDA_PIN = 21;  // ขา SDA ของจอ OLED
+const int OLED_SCL_PIN = 22;  // ขา SCL ของจอ OLED
 const uint8_t OLED_ADDR = 0x3C;  // แอดเดรส I2C ของจอ (บางรุ่นเป็น 0x3D)
 // ความเร็ว I2C ตอนสแกนหาจอก่อนเริ่มไลบรารี
 // หมายเหตุ: ไลบรารี SH110X ตั้งความเร็วของมันเอง (ค่าเริ่มต้น 400 kHz) ตอนส่งภาพ

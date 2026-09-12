@@ -8,15 +8,15 @@
 // พร้อมพิมพ์ความเร็วออก Serial Monitor (115200)
 // ให้จ้องจอแล้วจำไว้ว่า "ระดับไหนที่ขาวเต็มจอโดยไม่มีหิมะเหลือ"
 //
-// ต่อสาย: SDA -> GPIO32, SCL -> GPIO33, VCC -> 3V3, GND -> GND
+// ต่อสาย: SDA -> GPIO21, SCL -> GPIO22, VCC -> 3V3, GND -> GND
 // ======================================================
 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-const int OLED_SDA_PIN = 32;
-const int OLED_SCL_PIN = 33;
+const int OLED_SDA_PIN = 21;
+const int OLED_SCL_PIN = 22;
 const int OLED_W = 128;
 const int OLED_H = 64;
 const uint8_t OLED_ADDR = 0x3C;

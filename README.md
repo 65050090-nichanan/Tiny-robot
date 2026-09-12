@@ -104,8 +104,8 @@ The physical pins for `Serial2` and `Serial3` depend on the STM32 board/core con
 
 | Function | Pin |
 |---|---|
-| OLED SDA | GPIO32 |
-| OLED SCL | GPIO33 |
+| OLED SDA | GPIO21 |
+| OLED SCL | GPIO22 |
 | To STM32 Serial2 RX (PA3) | GPIO17 (TX) |
 | From STM32 Serial2 TX (PA2) | GPIO16 (RX) |
 
