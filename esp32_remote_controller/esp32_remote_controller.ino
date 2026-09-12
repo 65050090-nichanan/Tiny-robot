@@ -1,0 +1,643 @@
+// ======================================================
+// ESP32 Remote: Wi-Fi AP + หน้าเว็บบังคับหุ่น + ภาพสดจากกล้อง + จอ OLED โชว์รูปสัตว์
+//
+// หน้าที่ของบอร์ดนี้
+//   1. ปล่อย Wi-Fi AP ชื่อ My_Robot ให้มือถือและ ESP32-CAM มาเกาะ
+//   2. เสิร์ฟหน้าเว็บบังคับหุ่น พร้อมฝังภาพสดจากกล้อง
+//   3. ส่งคำสั่งจากหน้าเว็บต่อไปให้ STM32 ทาง Serial2 (นี่คือส่วนที่เดิมขาดไป หุ่นเลยไม่ขยับ)
+//   4. รับรหัสสัตว์จาก ESP32-CAM ทาง UDP แล้วเล่นภาพบนจอ OLED เป็นลำดับ
+//
+// จอ OLED มี 4 หน้า สลับกันเองตามสถานการณ์
+//   ต้อนรับ  - รูปหุ่นยนต์ 2.5 วินาทีแรกหลังบูต
+//   สถานะ    - MODE / SPEED / IP กล้อง ตอนหุ่นจอดนิ่ง
+//   สแกน     - QR จำลองมีแถบกวาดเลื่อนวน เล่นตลอดเวลาที่หุ่นเคลื่อนที่
+//   เจอแล้ว  - เครื่องหมายถูกกระพริบ 1 วินาที แล้วเปลี่ยนเป็นรูปสัตว์จนครบ 5 วินาที
+//
+// การต่อสาย
+//   OLED SSD1306 (I2C):  SDA -> GPIO21, SCL -> GPIO22, VCC -> 3V3, GND -> GND
+//   ไปหา STM32 (UART2):  GPIO17 (TX) -> STM32 Serial2 RX (PA3)
+//                        GPIO16 (RX) <- STM32 Serial2 TX (PA2)   (ไม่ใช้ก็ได้)
+//                        ต้องต่อ GND ร่วมกันด้วย
+// ======================================================
+
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <WebServer.h>
+#include <WebSocketsServer.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+
+// ---------- เลือกชิปของจอ ----------
+// จอ OLED I2C หน้าตาเหมือนกันแต่ข้างในมีสองชิปที่คุยกันคนละแบบ
+//   0 = SSD1306  พบมากในจอ 0.96 นิ้ว
+//   1 = SH1106   พบมากในจอ 1.3 นิ้ว  (ต้องลงไลบรารี "Adafruit SH110X" ก่อน)
+//
+// อาการเมื่อตั้งเป็น SSD1306 ทั้งที่จอจริงเป็น SH1106:
+//   ภาพขึ้นแค่แถบบนสุด ส่วนที่เหลือเป็นจุดขาวดำมั่วค้างอยู่
+//   เพราะ SH1106 ไม่รองรับโหมด horizontal addressing ที่ไลบรารี SSD1306 ใช้
+//   ข้อมูลทั้งเฟรมเลยไปกองอยู่ที่หน้าแรกหน้าเดียว
+// ทดสอบว่าจอเป็นตัวไหนได้ด้วย tests/test_oled_sh1106/ หรือ tests/test_oled_raw/
+//
+// จอของหุ่นตัวนี้ทดสอบแล้วเป็น SH1106 จึงตั้งเป็น 1
+#define OLED_DRIVER_SH1106 0
+
+#if OLED_DRIVER_SH1106
+  #include <Adafruit_SH110X.h>
+  #define OLED_WHITE SH110X_WHITE
+#else
+  #include <Adafruit_SSD1306.h>
+  #define OLED_WHITE SSD1306_WHITE
+#endif
+
+#include "animal_bitmaps.h"  // รูปเต็มจอ 128x64 สร้างจาก tools/png_to_bitmaps.py
+
+// ---------- ค่าคงที่ตั้งค่าได้ ----------
+const char *AP_SSID = "My_Robot";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
+const char *AP_PASSWORD = "password1234";  // รหัสผ่าน Wi-Fi (ต้องยาวอย่างน้อย 8 ตัว)
+
+const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อมูลจาก STM32
+const int STM32_TX_PIN = 17;  // ขา TX ของ ESP32 ส่งคำสั่งไป STM32
+const long STM32_BAUD = 115200;  // ความเร็วสื่อสารกับ STM32 ต้องตรงกับฝั่ง STM32
+
+const int OLED_SDA_PIN = 21;  // ขา SDA ของจอ OLED
+const int OLED_SCL_PIN = 22;  // ขา SCL ของจอ OLED
+const uint8_t OLED_ADDR = 0x3C;  // แอดเดรส I2C ของจอ (บางรุ่นเป็น 0x3D)
+// ความเร็ว I2C ตอนสแกนหาจอก่อนเริ่มไลบรารี
+// หมายเหตุ: ไลบรารี SH110X ตั้งความเร็วของมันเอง (ค่าเริ่มต้น 400 kHz) ตอนส่งภาพ
+// ค่านี้จึงมีผลแค่ช่วงก่อน begin() เท่านั้น
+const uint32_t OLED_I2C_HZ = 100000;  // ส่งเข้าคอนสตรัคเตอร์ด้วย ไลบรารีจะได้ไม่ตั้ง 400 kHz เอง
+const int OLED_INIT_TRIES = 20;            // เคาะถามจอกี่ครั้งก่อนยอมแพ้
+const int OLED_INIT_WAIT_MS = 100;         // เว้นกี่มิลลิวินาทีระหว่างการเคาะแต่ละครั้ง
+const unsigned long OLED_CHECK_MS = 2000;
+const int OLED_RECOVER_PULSES = 20;        // สับนาฬิกาปลดล็อกบัสได้สูงสุดกี่ครั้ง
+const int OLED_W = 128;  // ความกว้างจอเป็นพิกเซล
+const int OLED_H = 64;   // ความสูงจอเป็นพิกเซล
+
+const unsigned int ANIMAL_UDP_PORT = 1235;  // พอร์ต UDP ที่รอรับรหัสสัตว์จาก ESP32-CAM
+const unsigned long ANIMAL_SHOW_MS = 5000;  // เวลารวมของช่วง "เจอแล้ว" + รูปสัตว์ (ให้เท่ากับเวลาที่หุ่นหยุด)
+const unsigned long DETECT_SHOW_MS = 1000;  // ในช่วงนั้น กระพริบภาพ "เจอแล้ว" กี่มิลลิวินาทีก่อนเปลี่ยนเป็นรูปสัตว์
+const unsigned long SCAN_FRAME_MS = 160;    // เปลี่ยนเฟรมภาพกำลังสแกนทุกกี่มิลลิวินาที
+const unsigned long START_SCREEN_MS = 2500;  // ค้างหน้าต้อนรับกี่มิลลิวินาทีนับจากบูต
+const unsigned long CAM_TIMEOUT_MS = 10000;  // ถ้าไม่ได้ข่าวจากกล้องเกินเท่านี้ ถือว่ากล้องหลุด
+
+// ---------- วัตถุหลัก ----------
+WebServer server(80);                               // เว็บเซิร์ฟเวอร์เสิร์ฟหน้า HTML
+WebSocketsServer webSocket = WebSocketsServer(81);  // ช่องทางส่งคำสั่งเรียลไทม์จากหน้าเว็บ
+WiFiUDP udp;                                        // ตัวรับ UDP จาก ESP32-CAM
+// -1 คือไม่ใช้ขา reset สองตัวท้ายคือความเร็ว I2C ตอนส่งข้อมูลและตอนพัก
+// ถ้าไม่ใส่ ไลบรารีจะตั้ง 400 kHz ให้เองโดยไม่สนค่าที่เราตั้งไว้ใน Wire.setClock
+#if OLED_DRIVER_SH1106
+Adafruit_SH1106G display(OLED_W, OLED_H, &Wire, -1, OLED_I2C_HZ, OLED_I2C_HZ);
+#else
+Adafruit_SSD1306 display(OLED_W, OLED_H, &Wire, -1, OLED_I2C_HZ, OLED_I2C_HZ);
+#endif
+
+// ---------- สถานะระบบ ----------
+bool isAutoMode = false;   // โหมดปัจจุบัน (true = AUTO, false = MANUAL)
+int robotSpeed = 180;      // ความเร็วล่าสุดที่ตั้งจากสไลเดอร์ (ต้องตรงกับ baseSpeed ฝั่ง STM32)
+bool hasOled = false;      // เจอจอ OLED ตอนบูตหรือไม่ ถ้าไม่เจอจะข้ามการวาดทั้งหมด
+
+String camIp = "";                 // IP ของ ESP32-CAM ที่เรียนรู้มาจากแพ็กเก็ต UDP
+unsigned long lastCamSeen = 0;     // เวลาล่าสุดที่ได้ยินเสียงกล้อง
+
+int currentAnimal = -1;            // ดัชนีสัตว์ที่กำลังโชว์อยู่ (-1 = ไม่มี)
+unsigned long animalUntil = 0;     // โชว์รูปสัตว์ไปจนถึงเวลานี้ (millis)
+
+// การวาดจอ OLED หนึ่งเฟรมต้องส่งข้อมูล 1KB ผ่าน I2C ถ้าวาดทุกครั้งที่ขยับสไลเดอร์จะหน่วง
+// จึงแค่ตั้งธงไว้ แล้วให้ loop() ค่อยวาดจริงแบบจำกัดจำนวนครั้งต่อวินาที
+bool idleDirty = false;            // มีสถานะเปลี่ยน รอวาดจอใหม่
+unsigned long lastIdleDraw = 0;    // เวลาที่วาดหน้าสถานะครั้งล่าสุด
+const unsigned long IDLE_DRAW_MS = 120;  // วาดหน้าสถานะถี่สุดทุกกี่มิลลิวินาที
+
+bool isMoving = false;             // หุ่นกำลังเคลื่อนที่อยู่ไหม ดูจากคำสั่งล่าสุดที่ส่งไป STM32
+unsigned long detectUntil = 0;     // กระพริบภาพ "เจอแล้ว" ไปจนถึงเวลานี้
+bool animalDrawn = false;          // วาดรูปสัตว์ไปแล้วหรือยัง จะได้ไม่วาดซ้ำทุกรอบ loop
+bool detectDrawn = false;          // วาดภาพ "เจอแล้ว" ไปแล้วหรือยัง
+int animFrame = 0;                 // เฟรมปัจจุบันของภาพเคลื่อนไหว
+unsigned long lastAnimDraw = 0;    // เวลาที่วาดเฟรมภาพเคลื่อนไหวครั้งล่าสุด
+
+// ภาพเคลื่อนไหวชุดกำลังสแกน เล่นวนไปเรื่อยๆ ตอนหุ่นเคลื่อนที่
+const unsigned char *const SCAN_FRAMES[] = { bmp_scan1, bmp_scan2, bmp_scan3, bmp_scan4 };
+const int SCAN_FRAME_COUNT = sizeof(SCAN_FRAMES) / sizeof(SCAN_FRAMES[0]);
+
+
+
+// ---------- ตารางสัตว์: รหัส 1 ตัวอักษร -> ชื่อ + รูป ----------
+struct Animal {
+  char code;                     // รหัสที่ ESP32-CAM ส่งมา
+  const char *name;              // ชื่อที่พิมพ์ขึ้นจอและหน้าเว็บ
+  const unsigned char *bitmap;   // รูป 64x64 ใน PROGMEM
+};
+
+const Animal ANIMALS[] = {
+  { 'D', "DOG",   bmp_dog },
+  { 'C', "CAT",   bmp_cat },
+  { 'B', "BIRD",  bmp_bird },
+  { 'L', "LION",  bmp_lion },
+  { 'T', "TIGER", bmp_tiger },
+};
+const int ANIMAL_COUNT = sizeof(ANIMALS) / sizeof(ANIMALS[0]);
+
+// ---------- HTML หน้าควบคุม ----------
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        * { box-sizing: border-box; -webkit-user-select: none; touch-action: manipulation; }
+        body { font-family: sans-serif; text-align: center; background-color: #1a1a2e; color: white; margin: 0; padding: 16px; }
+        h2 { margin: 0 0 14px 0; }
+        .card { background: #16213e; padding: 14px; border-radius: 15px; margin: 0 auto 16px auto; max-width: 340px; border: 1px solid #0f3460; }
+        #cam-wrap { position: relative; max-width: 340px; margin: 0 auto 16px auto; }
+        #cam { width: 100%; border-radius: 15px; background: #0f3460; display: block; min-height: 120px; }
+        #cam-msg { padding: 30px 10px; color: #8a8aa8; font-size: 14px; }
+        #animal-badge { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px;
+                        background: rgba(15,157,88,0.92); color: #fff; font-size: 20px; font-weight: bold;
+                        padding: 8px 22px; border-radius: 30px; display: none; }
+        #status-text { color: #e94560; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-gap: 14px; max-width: 300px; margin: 0 auto 16px auto; }
+        .btn { width: 100%; aspect-ratio: 1/1; border-radius: 20px; font-size: 28px; color: white; border: none; cursor: pointer; background-color: #0f3460; }
+        .btn:active { background-color: #2980b9; }
+        .btn-toggle { background-color: #e94560; font-size: 16px; font-weight: bold; }
+        .btn-toggle.auto-on { background-color: #0f9d58; }
+        .empty { visibility: hidden; }
+        .slider { width: 100%; height: 10px; border-radius: 5px; background: #0f3460; outline: none; -webkit-appearance: none; }
+        .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 25px; height: 25px; border-radius: 50%; background: #e94560; border: 2px solid white; }
+        #link { color: #8a8aa8; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h2>TINY ROBOT</h2>
+
+    <div id="cam-wrap">
+        <div id="cam-msg">กำลังรอกล้องเชื่อมต่อ...</div>
+        <img id="cam" style="display:none">
+        <div id="animal-badge"></div>
+    </div>
+
+    <div class="card">
+        MODE: <span id="status-text">MANUAL</span> | SPEED: <span id="speed-val">180</span><br>
+        <span id="link">CAM: -</span>
+    </div>
+
+    <div class="grid">
+        <div class="empty"></div>
+        <button class="btn" onmousedown="sendCmd('forward')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('forward')" ontouchend="sendCmd('stop')">&#9650;</button>
+        <div class="empty"></div>
+        <button class="btn" onmousedown="sendCmd('left')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('left')" ontouchend="sendCmd('stop')">&#9664;</button>
+        <button id="main-btn" class="btn btn-toggle" onclick="toggleMode()">STOP<br><small>MANUAL</small></button>
+        <button class="btn" onmousedown="sendCmd('right')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('right')" ontouchend="sendCmd('stop')">&#9654;</button>
+        <div class="empty"></div>
+        <button class="btn" onmousedown="sendCmd('backward')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('backward')" ontouchend="sendCmd('stop')">&#9660;</button>
+        <div class="empty"></div>
+    </div>
+
+    <div class="card">
+        <label>Speed: <span id="speed-val2">180</span></label><br><br>
+        <!-- ต่ำกว่า 135 มอเตอร์ไม่มีแรงพอจะหมุน ตรงกับ MIN_PWM ฝั่ง STM32 -->
+        <input type="range" min="135" max="255" value="180" class="slider" oninput="updateSpeed(this.value)">
+    </div>
+
+<script>
+var websocket;
+var isAuto = false;
+var camUrl = "";
+var badgeTimer = null;
+
+function initWebSocket() {
+    websocket = new WebSocket('ws://' + window.location.hostname + ':81/');
+    websocket.onmessage = onMessage;
+    websocket.onopen = function() { document.getElementById('link').innerText = 'CAM: ' + (camUrl ? 'ok' : '-'); };
+    // ถ้าสายหลุดให้ลองต่อใหม่เอง หน้าเว็บจะได้ไม่ตายถาวร
+    websocket.onclose = function() { setTimeout(initWebSocket, 2000); };
+}
+
+function onMessage(evt) {
+    var msg = evt.data;
+    if (msg.startsWith('CAMIP:')) {
+        setCamera(msg.substring(6));
+    } else if (msg.startsWith('ANIMAL:')) {
+        showAnimal(msg.substring(7));
+    }
+}
+
+function setCamera(ip) {
+    document.getElementById('link').innerText = ip ? ('CAM: ' + ip) : 'CAM: -';
+    var img = document.getElementById('cam');
+    var msg = document.getElementById('cam-msg');
+    if (!ip) {                       // กล้องหลุด กลับไปแสดงข้อความรอ
+        camUrl = "";
+        img.style.display = 'none';
+        img.removeAttribute('src');
+        msg.style.display = 'block';
+        return;
+    }
+    var url = 'http://' + ip + ':81/stream';
+    if (url === camUrl) return;      // IP เดิม ไม่ต้องโหลดสตรีมใหม่
+    camUrl = url;
+    img.onload = function() { msg.style.display = 'none'; img.style.display = 'block'; };
+    img.src = url;
+}
+
+function showAnimal(name) {
+    var badge = document.getElementById('animal-badge');
+    badge.innerText = '🐾 ' + name;
+    badge.style.display = 'block';
+    if (badgeTimer) clearTimeout(badgeTimer);
+    badgeTimer = setTimeout(function() { badge.style.display = 'none'; }, 5000);
+}
+
+function sendCmd(cmd) {
+    if (!websocket || websocket.readyState !== 1) return;
+    if (!isAuto || cmd === 'stop') websocket.send(cmd);
+}
+
+function toggleMode() {
+    if (!websocket || websocket.readyState !== 1) {   // ยังต่อไม่ติด กดไปก็ไม่มีอะไรเกิดขึ้น
+        document.getElementById('link').innerText = 'ยังต่อกับหุ่นไม่ติด รอสักครู่...';
+        return;
+    }
+    isAuto = !isAuto;
+    var btn = document.getElementById('main-btn');
+    var status = document.getElementById('status-text');
+    if (isAuto) {
+        btn.classList.add('auto-on');
+        btn.innerHTML = "AUTO<br><small>RUNNING</small>";
+        status.innerText = "AUTO";
+        status.style.color = "#0f9d58";
+        websocket.send("MODE:AUTO");
+    } else {
+        btn.classList.remove('auto-on');
+        btn.innerHTML = "STOP<br><small>MANUAL</small>";
+        status.innerText = "MANUAL";
+        status.style.color = "#e94560";
+        websocket.send("MODE:MANUAL");
+        websocket.send("stop");
+    }
+}
+
+function updateSpeed(s) {
+    document.getElementById('speed-val').innerText = s;
+    document.getElementById('speed-val2').innerText = s;
+    if (websocket && websocket.readyState === 1) websocket.send("SPEED:" + s);
+}
+
+window.onload = initWebSocket;
+</script>
+</body>
+</html>
+)rawliteral";
+
+// ======================================================
+// จอ OLED
+// ======================================================
+
+// จอจะตอบรับก็ต่อเมื่อวงจรภายในตั้งตัวเสร็จ ซึ่งช้ากว่าตอน ESP32 บูตเสร็จ
+// ถ้ายิงคำสั่ง init ไปตอนจอยังไม่พร้อม คำสั่งจะหายไปเงียบๆ แล้วจอค้างดำทั้งที่สายดีอยู่
+// อาการคือเดี๋ยวขึ้นเดี๋ยวไม่ขึ้น เปลี่ยนไปตามจังหวะที่เสียบไฟ
+// จึงต้องเคาะถามก่อนว่าจอตอบรับหรือยัง แล้วค่อยสั่ง init
+// ปลดล็อกบัส I2C ที่ค้าง
+// ถ้าสัญญาณถูกรบกวนกลางคันระหว่างที่จอกำลังส่งบิตตอบกลับ จอจะกดสาย SDA ค้างไว้ที่ LOW
+// รอให้ ESP32 สับนาฬิกาต่อจนครบไบต์ แต่ ESP32 ถือว่าจบรายการไปแล้ว บัสเลยค้างถาวร
+// ทุกคำสั่งหลังจากนั้นล้มหมดจนกว่าจะรีเซ็ต แก้ได้ด้วยการสับนาฬิกาให้ครบ 9 ครั้งแล้วส่ง STOP
+bool recoverI2CBus() {
+  Wire.end();
+  pinMode(OLED_SDA_PIN, INPUT_PULLUP);   // ปล่อยสาย SDA ให้จอเป็นคนกำหนดระดับ
+  pinMode(OLED_SCL_PIN, OUTPUT);
+
+  // สับนาฬิกาทีละครั้งแล้วดูว่าจอปล่อยสาย SDA หรือยัง
+  // ปกติจอจะปล่อยภายใน 9 ครั้ง คือความยาวของหนึ่งไบต์บวกบิตตอบรับ
+  int pulses = 0;
+  while (digitalRead(OLED_SDA_PIN) == LOW && pulses < OLED_RECOVER_PULSES) {
+    digitalWrite(OLED_SCL_PIN, LOW);  delayMicroseconds(5);
+    digitalWrite(OLED_SCL_PIN, HIGH); delayMicroseconds(5);
+    pulses++;
+  }
+  bool freed = (digitalRead(OLED_SDA_PIN) == HIGH);
+
+  if (freed) {                           // สร้างสัญญาณ STOP ปิดท้ายให้ถูกจังหวะ
+    pinMode(OLED_SDA_PIN, OUTPUT);
+    digitalWrite(OLED_SDA_PIN, LOW);  delayMicroseconds(5);
+    digitalWrite(OLED_SCL_PIN, HIGH); delayMicroseconds(5);
+    digitalWrite(OLED_SDA_PIN, HIGH); delayMicroseconds(5);
+  }
+
+  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+  Wire.setClock(OLED_I2C_HZ);
+
+  Serial.print("  ปลดล็อกบัส: สับนาฬิกา ");
+  Serial.print(pulses);
+  Serial.println(freed ? " ครั้ง -> สาย SDA ว่างแล้ว" : " ครั้ง -> สาย SDA ยังถูกกดค้าง ไม่ใช่บัสล็อกธรรมดา");
+  return freed;
+}
+
+// สั่ง init ครั้งเดียวโดยไม่รอ ใช้ตอนที่รู้แล้วว่าจอตอบรับอยู่
+bool beginDisplayOnce() {
+#if OLED_DRIVER_SH1106
+  display.begin(OLED_ADDR, false);  // false = ไม่ใช้ขา reset โมดูล I2C ไม่มีขานี้
+  display.setContrast(0x7F);
+  return true;
+#else
+  return display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+#endif
+}
+
+// วนรอจนจอตอบรับแล้วค่อยสั่ง init -- ใช้เฉพาะใน setup() เท่านั้น
+// ห้ามเรียกจาก loop() เพราะบล็อกได้นานถึง 2 วินาที ซึ่งจะทำให้หน้าเว็บค้าง
+bool initDisplay() {
+  for (int attempt = 1; attempt <= OLED_INIT_TRIES; attempt++) {
+    Wire.beginTransmission(OLED_ADDR);
+    if (Wire.endTransmission() == 0 && beginDisplayOnce()) {
+      Serial.print("เริ่มจอสำเร็จในครั้งที่ ");
+      Serial.println(attempt);
+      return true;
+    }
+    delay(OLED_INIT_WAIT_MS);
+  }
+  Serial.println("จอไม่ตอบรับเลย ข้ามการแสดงผลบนจอ");
+  return false;
+}
+
+// รูปทุกใบใน assets/oled/ วาดมาเต็มจอ 128x64 พร้อมตัวหนังสือในตัวอยู่แล้ว
+// จึงแค่พ่นลงจอตรงๆ ไม่ต้องพิมพ์ข้อความซ้อนทับ
+void drawFullScreen(const unsigned char *bitmap) {
+  if (!hasOled) return;
+  display.clearDisplay();
+  display.drawBitmap(0, 0, bitmap, OLED_BMP_W, OLED_BMP_H, OLED_WHITE);
+  display.display();
+}
+
+// หน้าจอต้อนรับตอนเปิดเครื่อง โชว์ระหว่างที่ยังตั้งค่า Wi-Fi อยู่
+void drawStartScreen() { drawFullScreen(bmp_start); }
+
+// วาดหน้าจอสถานะปกติ (ตอนที่ไม่ได้โชว์รูปสัตว์)
+void drawIdleScreen() {
+  if (!hasOled) return;
+  display.clearDisplay();
+  display.setTextColor(OLED_WHITE);
+
+  display.setTextSize(2);
+  display.setCursor(0, 0);
+  display.println("TINY BOT");
+
+  display.setTextSize(1);
+  display.setCursor(0, 22);
+  display.print("MODE : ");
+  display.println(isAutoMode ? "AUTO" : "MANUAL");
+  display.setCursor(0, 34);
+  display.print("SPEED: ");
+  display.println(robotSpeed);
+  display.setCursor(0, 46);
+  display.print("CAM  : ");
+  display.println(camIp.length() ? camIp : String("waiting"));
+
+  display.display();
+}
+
+// หน้าจอกำลังสแกน เล่นวนตอนหุ่นเคลื่อนที่ จุดท้ายข้อความวิ่งตามเฟรมไปด้วย
+void drawScanScreen(int frame) { drawFullScreen(SCAN_FRAMES[frame]); }
+
+// หน้าจอเจอแล้ว กระพริบสั้นๆ ก่อนจะเฉลยว่าเป็นสัตว์อะไร
+void drawDetectScreen() { drawFullScreen(bmp_detected); }
+
+// วาดรูปสัตว์เต็มจอ: รูป 64x64 ด้านซ้าย ชื่อสัตว์ด้านขวา
+void drawAnimalScreen(int idx) { drawFullScreen(ANIMALS[idx].bitmap); }
+
+// ======================================================
+// สื่อสารกับ STM32
+// ======================================================
+
+// ส่งคำสั่งไป STM32 พร้อมขึ้นบรรทัดใหม่ (ฝั่ง STM32 อ่านด้วย readStringUntil('\n'))
+void sendToStm32(const String &cmd) {
+  Serial2.print(cmd);
+  Serial2.print('\n');
+  Serial.print(">> STM32: ");
+  Serial.println(cmd);
+}
+
+// ======================================================
+// WebSocket
+// ======================================================
+
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  if (type == WStype_CONNECTED) {
+    // ลูกค้าใหม่เข้ามา บอก IP กล้องให้รู้ทันที หน้าเว็บจะได้เริ่มโหลดภาพ
+    String hello = "CAMIP:" + camIp;  // ไลบรารีรับเป็น String& จึงส่งค่าชั่วคราวตรงๆ ไม่ได้
+    webSocket.sendTXT(num, hello);
+    return;
+  }
+  if (type != WStype_TEXT) return;
+
+  String msg = String((char *)payload).substring(0, length);
+
+  if (msg == "MODE:AUTO") {
+    isAutoMode = true;
+    isMoving = true;              // โหมดออโต้ = วิ่งตามเส้นไปเรื่อยๆ
+  } else if (msg == "MODE:MANUAL") {
+    isAutoMode = false;
+    isMoving = false;
+  } else if (msg.startsWith("SPEED:")) {
+    robotSpeed = msg.substring(6).toInt();
+  } else if (msg == "stop") {
+    isMoving = false;
+  } else {
+    isMoving = true;              // forward / backward / left / right
+  }
+
+  sendToStm32(msg);  // ส่งต่อทุกคำสั่งให้ STM32 เป็นคนตัดสินใจ
+  idleDirty = true;  // ขอให้ loop() วาดจอสถานะใหม่เมื่อถึงคิว
+}
+
+// เคาะถามจอเป็นระยะ ถ้าเพิ่งกลับมาให้สั่ง init ใหม่แล้ววาดใหม่
+// จำเป็นเพราะจอที่ต่อด้วยสายดูปองต์หลุดชั่วขณะได้ง่าย และพอไฟกลับมาจอจะลืมค่าที่ตั้งไว้ทั้งหมด
+void watchDisplay() {
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck < OLED_CHECK_MS) return;
+  lastCheck = millis();
+
+  Wire.beginTransmission(OLED_ADDR);
+  bool alive = (Wire.endTransmission() == 0);
+
+  if (!alive) {
+    if (hasOled) {
+      hasOled = false;
+      Serial.println("จอหลุดไป เช็กสายด้วย");
+    }
+    recoverI2CBus();   // เผื่อบัสค้างอยู่ ปลดล็อกไว้ รอบหน้าจะได้เคาะถามใหม่ได้
+  } else if (!hasOled) {
+    Serial.println("จอกลับมาแล้ว กำลังเริ่มใหม่");
+    hasOled = beginDisplayOnce();   // ครั้งเดียว ไม่วนรอ จะได้ไม่บล็อก loop
+    if (hasOled) {
+      idleDirty = true;   // บังคับให้วาดหน้าสถานะใหม่ทันที
+      animalDrawn = false;
+      detectDrawn = false;
+    }
+  }
+}
+
+
+// เลือกว่าตอนนี้จอควรแสดงอะไร แล้ววาดให้แค่เท่าที่จำเป็น
+// ลำดับความสำคัญ: เจอแล้ว -> รูปสัตว์ -> กำลังสแกน -> หน้าสถานะ
+void updateScreen() {
+  if (!hasOled) return;
+  unsigned long now = millis();
+
+  if (currentAnimal >= 0) {
+    if (now < detectUntil) {                       // ช่วงแรก บอกว่าเจอ QR แล้ว
+      if (!detectDrawn) {
+        detectDrawn = true;
+        drawDetectScreen();
+      }
+      return;
+    }
+    if (now < animalUntil) {                       // ช่วงสอง เฉลยว่าเป็นสัตว์อะไร วาดครั้งเดียวพอ
+      if (!animalDrawn) {
+        animalDrawn = true;
+        drawAnimalScreen(currentAnimal);
+      }
+      return;
+    }
+    currentAnimal = -1;                            // หมดเวลาแล้ว กลับไปหน้าปกติ
+    animFrame = 0;
+    idleDirty = true;
+  }
+
+  if (isMoving) {                                  // หุ่นวิ่งอยู่ = กำลังมองหา QR
+    if (now - lastAnimDraw >= SCAN_FRAME_MS) {
+      lastAnimDraw = now;
+      drawScanScreen(animFrame % SCAN_FRAME_COUNT);
+      animFrame++;
+    }
+    idleDirty = true;                              // พอหยุดวิ่งจะได้กลับไปวาดหน้าสถานะทันที
+    return;
+  }
+
+  if (idleDirty && now - lastIdleDraw > IDLE_DRAW_MS) {
+    idleDirty = false;
+    lastIdleDraw = now;
+    drawIdleScreen();
+  }
+}
+
+// ======================================================
+// UDP จาก ESP32-CAM
+// ======================================================
+
+void handleUdp() {
+  int packetSize = udp.parsePacket();
+  if (packetSize <= 0) return;
+
+  char buf[16];
+  int len = udp.read(buf, sizeof(buf) - 1);
+  if (len <= 0) return;
+  buf[len] = '\0';
+
+  // ทุกแพ็กเก็ตที่เข้ามาคือหลักฐานว่ากล้องยังอยู่ จำ IP ไว้ใช้ทำลิงก์ภาพสด
+  String from = udp.remoteIP().toString();
+  lastCamSeen = millis();
+  if (from != camIp) {
+    camIp = from;
+    String note = "CAMIP:" + camIp;  // ไลบรารีรับเป็น String& จึงส่งค่าชั่วคราวตรงๆ ไม่ได้
+    webSocket.broadcastTXT(note);
+    Serial.println("พบกล้องที่ " + camIp);
+  }
+
+  // ตัวอักษรแรกคือรหัสสัตว์ ถ้าเป็นแพ็กเก็ตแจ้งว่ายังอยู่ ('P') ก็ไม่ต้องทำอะไรต่อ
+  for (int i = 0; i < ANIMAL_COUNT; i++) {
+    if (buf[0] != ANIMALS[i].code) continue;
+    currentAnimal = i;
+    detectUntil = millis() + DETECT_SHOW_MS;       // กระพริบ "เจอแล้ว" ก่อน
+    animalUntil = millis() + ANIMAL_SHOW_MS;       // แล้วค่อยเฉลยรูปสัตว์จนครบเวลารวม
+    detectDrawn = false;
+    animalDrawn = false;
+    animFrame = 0;
+    lastAnimDraw = 0;
+    String note = String("ANIMAL:") + ANIMALS[i].name;
+    webSocket.broadcastTXT(note);
+    Serial.printf("เจอสัตว์: %s\n", ANIMALS[i].name);
+    return;
+  }
+}
+
+// ======================================================
+// setup / loop
+// ======================================================
+
+void setup() {
+  Serial.begin(115200);
+  delay(300);  // รอให้พอร์ตพร้อม ไม่งั้นข้อความแรกๆ จะหายไป
+  Serial.println("\n=== Tiny Robot remote ===");
+  Serial.printf("build %s %s | ไดรเวอร์จอ: %s\n", __DATE__, __TIME__,
+                OLED_DRIVER_SH1106 ? "SH1106" : "SSD1306");
+
+  Serial2.begin(STM32_BAUD, SERIAL_8N1, STM32_RX_PIN, STM32_TX_PIN);  // ช่องส่งคำสั่งไป STM32
+  Serial.println("[1] Serial2 ไป STM32 พร้อม");
+
+  // จอ OLED: ถ้าหาไม่เจอก็ปล่อยผ่าน ส่วนอื่นของระบบยังทำงานได้ปกติ
+  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+  Wire.setClock(OLED_I2C_HZ);
+  Serial.printf("[2] I2C พร้อม SDA=%d SCL=%d\n", OLED_SDA_PIN, OLED_SCL_PIN);
+
+  Serial.println("[3] กำลังรอจอตอบรับ");
+  hasOled = initDisplay();
+  Serial.print("[4] hasOled=");
+  Serial.println(hasOled);
+
+  drawStartScreen();  // ขึ้นหน้าต้อนรับทันที แล้วปล่อยให้ setup ทำงานต่อเบื้องหลัง
+  Serial.println("[5] วาดหน้าต้อนรับแล้ว -- ตอนนี้จอควรขึ้นรูปหุ่นยนต์");
+
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  Serial.println("[6] เปิด Wi-Fi AP แล้ว");
+  Serial.print("เปิดหน้าเว็บที่ http://");
+  Serial.println(WiFi.softAPIP());
+
+  server.on("/", []() { server.send_P(200, "text/html", index_html); });
+  server.begin();
+
+  webSocket.begin();
+  webSocket.onEvent(onWebSocketEvent);
+
+  udp.begin(ANIMAL_UDP_PORT);
+
+  sendToStm32("stop");  // กันหุ่นค้างคำสั่งเก่าตอนบอร์ดรีเซ็ต
+  Serial.println("[7] เว็บเซิร์ฟเวอร์ WebSocket และ UDP พร้อม");
+
+  // ค้างหน้าต้อนรับไว้ให้ครบเวลานับจากบูต ถ้า setup ใช้เวลาไปแล้วเกินนี้ก็ข้ามไปเลย
+  while (millis() < START_SCREEN_MS) delay(10);
+  drawIdleScreen();
+  Serial.println("[8] setup เสร็จสมบูรณ์ จอควรเปลี่ยนเป็นหน้าสถานะแล้ว");
+}
+
+void loop() {
+  webSocket.loop();
+  server.handleClient();
+  handleUdp();
+
+  // กล้องเงียบไปนาน ถือว่าหลุด ล้าง IP ทิ้งเพื่อให้หน้าเว็บเลิกรอสตรีมที่ตายแล้ว
+  if (camIp.length() && millis() - lastCamSeen > CAM_TIMEOUT_MS) {
+    camIp = "";
+    webSocket.broadcastTXT("CAMIP:");
+    idleDirty = true;
+    Serial.println("ขาดการติดต่อกับกล้อง");
+  }
+
+  watchDisplay();  // สายหลวมหรือไฟกระชากทำให้จอหลุดได้ ถ้าหลุดแล้วกลับมาให้เริ่มใหม่เอง
+  updateScreen();  // เครื่องสถานะของจอ ตัดสินใจเองว่ารอบนี้ต้องวาดอะไรไหม
+
+  // เต้นหัวใจทุก 5 วินาที ไว้ดูว่าบอร์ดยังไม่ค้างและสถานะจอเป็นยังไง
+  static unsigned long lastBeat = 0;
+  if (millis() - lastBeat > 5000) {
+    lastBeat = millis();
+    if (!hasOled) {   // จอเงียบ ดูระดับไฟบนสายเพื่อแยกว่าสายหลุดหรือบัสค้าง
+      Serial.print("  SDA=");
+      Serial.print(digitalRead(OLED_SDA_PIN) ? "HIGH" : "LOW(ค้าง)");
+      Serial.print("  SCL=");
+      Serial.println(digitalRead(OLED_SCL_PIN) ? "HIGH" : "LOW(ค้าง)");
+    }
+    Serial.printf("ยังทำงานอยู่ %lus | hasOled=%d isMoving=%d animal=%d cam=%s\n",
+                  millis() / 1000, hasOled, isMoving, currentAnimal,
+                  camIp.length() ? camIp.c_str() : "-");
+  }
+}
