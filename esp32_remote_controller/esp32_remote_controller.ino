@@ -39,7 +39,7 @@
 // ทดสอบว่าจอเป็นตัวไหนได้ด้วย tests/test_oled_sh1106/ หรือ tests/test_oled_raw/
 //
 // จอของหุ่นตัวนี้ทดสอบแล้วเป็น SH1106 จึงตั้งเป็น 1
-#define OLED_DRIVER_SH1106 0
+#define OLED_DRIVER_SH1106 1
 
 #if OLED_DRIVER_SH1106
   #include <Adafruit_SH110X.h>
@@ -70,6 +70,7 @@ const int OLED_INIT_TRIES = 20;            // เคาะถามจอกี�
 const int OLED_INIT_WAIT_MS = 100;         // เว้นกี่มิลลิวินาทีระหว่างการเคาะแต่ละครั้ง
 const unsigned long OLED_CHECK_MS = 2000;
 const int OLED_RECOVER_PULSES = 20;        // สับนาฬิกาปลดล็อกบัสได้สูงสุดกี่ครั้ง
+const int OLED_FAIL_LIMIT = 3;             // เคาะถามพลาดติดกันกี่ครั้งถึงถือว่าจอหลุดจริง
 const int OLED_W = 128;  // ความกว้างจอเป็นพิกเซล
 const int OLED_H = 64;   // ความสูงจอเป็นพิกเซล
 
@@ -298,6 +299,16 @@ window.onload = initWebSocket;
 // ถ้ายิงคำสั่ง init ไปตอนจอยังไม่พร้อม คำสั่งจะหายไปเงียบๆ แล้วจอค้างดำทั้งที่สายดีอยู่
 // อาการคือเดี๋ยวขึ้นเดี๋ยวไม่ขึ้น เปลี่ยนไปตามจังหวะที่เสียบไฟ
 // จึงต้องเคาะถามก่อนว่าจอตอบรับหรือยัง แล้วค่อยสั่ง init
+// เคาะถามจอด้วยคำสั่ง NOP ซึ่งไม่เปลี่ยนอะไรบนจอเลย
+// ต้องส่งข้อมูลจริงอย่างน้อยหนึ่งไบต์ เพราะรายการเปล่าที่ไม่มีข้อมูล
+// ไดรเวอร์ I2C ของ ESP32 อาจคืนค่าล้มเหลวได้ทั้งที่จอยังดีอยู่
+bool pingDisplay() {
+  Wire.beginTransmission(OLED_ADDR);
+  Wire.write(0x00);   // ไบต์นำหน้าบอกว่าต่อไปเป็นคำสั่ง
+  Wire.write(0xE3);   // NOP
+  return Wire.endTransmission() == 0;
+}
+
 // ปลดล็อกบัส I2C ที่ค้าง
 // ถ้าสัญญาณถูกรบกวนกลางคันระหว่างที่จอกำลังส่งบิตตอบกลับ จอจะกดสาย SDA ค้างไว้ที่ LOW
 // รอให้ ESP32 สับนาฬิกาต่อจนครบไบต์ แต่ ESP32 ถือว่าจบรายการไปแล้ว บัสเลยค้างถาวร
@@ -333,6 +344,28 @@ bool recoverI2CBus() {
   return freed;
 }
 
+// ไล่เรียกทุกแอดเดรสบนบัสแล้วรายงานว่าใครตอบบ้าง
+// ใช้ตอนหาจอไม่เจอ เพื่อแยกว่า "ไม่มีอะไรต่ออยู่เลย" กับ "มีจอแต่คนละแอดเดรส"
+void scanI2CBus() {
+  int found = 0;
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("  เจออุปกรณ์ที่ 0x");
+      Serial.println(a, HEX);
+      found++;
+    }
+  }
+  if (found == 0) {
+    Serial.println("  ไม่เจออุปกรณ์ใดๆ บนบัสเลย");
+    Serial.print("  เช็กว่าสายจอย้ายมาที่ SDA=GPIO");
+    Serial.print(OLED_SDA_PIN);
+    Serial.print(" SCL=GPIO");
+    Serial.print(OLED_SCL_PIN);
+    Serial.println(" แล้วหรือยัง และ VCC กับ GND ต่อครบไหม");
+  }
+}
+
 // สั่ง init ครั้งเดียวโดยไม่รอ ใช้ตอนที่รู้แล้วว่าจอตอบรับอยู่
 bool beginDisplayOnce() {
 #if OLED_DRIVER_SH1106
@@ -348,15 +381,17 @@ bool beginDisplayOnce() {
 // ห้ามเรียกจาก loop() เพราะบล็อกได้นานถึง 2 วินาที ซึ่งจะทำให้หน้าเว็บค้าง
 bool initDisplay() {
   for (int attempt = 1; attempt <= OLED_INIT_TRIES; attempt++) {
-    Wire.beginTransmission(OLED_ADDR);
-    if (Wire.endTransmission() == 0 && beginDisplayOnce()) {
+    if (pingDisplay() && beginDisplayOnce()) {
       Serial.print("เริ่มจอสำเร็จในครั้งที่ ");
       Serial.println(attempt);
       return true;
     }
     delay(OLED_INIT_WAIT_MS);
   }
-  Serial.println("จอไม่ตอบรับเลย ข้ามการแสดงผลบนจอ");
+  Serial.print("จอไม่ตอบที่ 0x");
+  Serial.print(OLED_ADDR, HEX);
+  Serial.println(" กำลังไล่สแกนทั้งบัส");
+  scanI2CBus();
   return false;
 }
 
@@ -454,26 +489,37 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
 // จำเป็นเพราะจอที่ต่อด้วยสายดูปองต์หลุดชั่วขณะได้ง่าย และพอไฟกลับมาจอจะลืมค่าที่ตั้งไว้ทั้งหมด
 void watchDisplay() {
   static unsigned long lastCheck = 0;
+  static int failStreak = 0;
   if (millis() - lastCheck < OLED_CHECK_MS) return;
   lastCheck = millis();
 
-  Wire.beginTransmission(OLED_ADDR);
-  bool alive = (Wire.endTransmission() == 0);
+  if (pingDisplay()) {
+    failStreak = 0;
+    if (!hasOled) {
+      Serial.println("จอกลับมาแล้ว กำลังเริ่มใหม่");
+      hasOled = beginDisplayOnce();   // ครั้งเดียว ไม่วนรอ จะได้ไม่บล็อก loop
+      if (hasOled) {
+        idleDirty = true;             // บังคับให้วาดหน้าสถานะใหม่ทันที
+        animalDrawn = false;
+        detectDrawn = false;
+      }
+    }
+    return;
+  }
 
-  if (!alive) {
-    if (hasOled) {
-      hasOled = false;
-      Serial.println("จอหลุดไป เช็กสายด้วย");
-    }
-    recoverI2CBus();   // เผื่อบัสค้างอยู่ ปลดล็อกไว้ รอบหน้าจะได้เคาะถามใหม่ได้
-  } else if (!hasOled) {
-    Serial.println("จอกลับมาแล้ว กำลังเริ่มใหม่");
-    hasOled = beginDisplayOnce();   // ครั้งเดียว ไม่วนรอ จะได้ไม่บล็อก loop
-    if (hasOled) {
-      idleDirty = true;   // บังคับให้วาดหน้าสถานะใหม่ทันที
-      animalDrawn = false;
-      detectDrawn = false;
-    }
+  // ยอมให้พลาดได้บ้าง สัญญาณรบกวนชั่วครู่ไม่ควรทำให้ตัดสินว่าจอหลุด
+  failStreak++;
+  if (failStreak < OLED_FAIL_LIMIT) return;
+
+  if (hasOled) {
+    hasOled = false;
+    Serial.println("จอหลุดไป เช็กสายด้วย");
+  }
+
+  // ปลดล็อกบัสเฉพาะตอนที่มีสายถูกกดค้างอยู่จริงเท่านั้น
+  // ถ้าสายว่างทั้งคู่แล้วยังไปยุ่งกับมัน จะกลายเป็นทำลายบัสที่ยังดีอยู่เสียเอง
+  if (digitalRead(OLED_SDA_PIN) == LOW || digitalRead(OLED_SCL_PIN) == LOW) {
+    recoverI2CBus();
   }
 }
 
