@@ -410,6 +410,25 @@ void oledResync() {
   oledCmd(0xAF);                  // เปิดจอ (ถ้าเปิดอยู่แล้วไม่มีผลอะไร)
 }
 
+// รายงานว่าเฟรมหนึ่งใช้เวลาจริงเท่าไหร่ และส่งได้กี่หน้าจาก 8 หน้า
+//
+// นี่คือตัววัดที่ตัดสินได้ว่าปัญหา "จอไม่เปลี่ยน" อยู่ตรงไหน
+//   ราว 30 ms ครบ 8 หน้า = ข้อมูลออกจากบอร์ดครบแล้ว ปัญหาอยู่ที่จอหรือสาย
+//   ราว 150 ms ไม่ครบ 8  = บัสหน่วงจนงบหมด เฟรมถูกตัดทิ้งทุกใบ จอจึงไม่เคยเปลี่ยน
+//
+// พิมพ์ 10 เฟรมแรกให้หมด หลังจากนั้นพิมพ์อย่างมากวินาทีละครั้ง กันล้น Serial
+void reportFrame(unsigned long ms, uint8_t pages) {
+  static uint16_t count = 0;
+  static unsigned long lastPrint = 0;
+  count++;
+  if (count > 10 && millis() - lastPrint < 1000) return;
+  lastPrint = millis();
+  Serial.print("เฟรมที่ ");   Serial.print(count);
+  Serial.print(" ใช้ ");       Serial.print(ms);
+  Serial.print(" ms ส่งได้ "); Serial.print(pages);
+  Serial.println("/8 หน้า");
+}
+
 void pushFrame() {
   uint8_t *buf = display.getBuffer();
   if (!buf) return;
@@ -429,6 +448,8 @@ void pushFrame() {
 
   oledResync();   // ปลดชิปจอออกจากสภาพค้างกลางคำสั่ง ถ้าบังเอิญค้างอยู่
 
+  uint8_t pagesDone = 0;
+
   for (uint8_t page = 0; page < OLED_H / 8; page++) {
     oledCmd(0xB0 + page);                              // เลือกหน้าที่จะเขียน
     oledCmd(0x00 | (OLED_COL_OFFSET & 0x0F));          // คอลัมน์เริ่มต้น 4 บิตล่าง
@@ -441,9 +462,12 @@ void pushFrame() {
       Wire.write(row + x, OLED_CHUNK);
       Wire.endTransmission();
     }
+    pagesDone++;
 
-    if (millis() - started > budgetMs) return;   // ใช้เวลาเกินงบ ทิ้งเฟรมนี้ไป
+    if (millis() - started > budgetMs) break;   // ใช้เวลาเกินงบ ทิ้งเฟรมนี้ไป
   }
+
+  reportFrame(millis() - started, pagesDone);
 }
 
 
