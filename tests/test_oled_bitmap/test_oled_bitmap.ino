@@ -61,7 +61,10 @@ const int FRAME_COUNT = sizeof(FRAMES) / sizeof(FRAMES[0]);
 
 const uint8_t OLED_COL_OFFSET = 2;  // SH1106 มี RAM 132 คอลัมน์ แต่จอจริงเริ่มที่คอลัมน์ 2
 const int OLED_CHUNK = 16;                    // ส่งข้อมูลภาพครั้งละกี่ไบต์
-const uint32_t OLED_I2C_HZ = 400000;
+// ทดลอง: ลดความเร็วลงครึ่งหนึ่งเพื่อดูว่าจอค้างช้าลงไหม
+// ถ้าอยู่ได้นานขึ้นชัดเจน แปลว่าเป็นเรื่องคุณภาพสัญญาณบนสาย ไม่ใช่ตรรกะในโค้ด
+// ลองไล่ลงไปได้อีกเป็น 100000 แล้ว 50000 ถ้ายังไม่ต่างให้กลับเป็น 400000
+const uint32_t OLED_I2C_HZ = 200000;
 
 // ส่งคำสั่งหนึ่งไบต์ไปที่จอ
 // หมายเหตุสำคัญ: ห้ามเชื่อค่าที่ Wire.endTransmission() คืนมาบนเครื่องนี้
@@ -158,7 +161,8 @@ void loop() {
     display.drawBitmap(0, 0, FRAMES[i].bmp, OLED_BMP_W, OLED_BMP_H, SH110X_WHITE);
     pushFrame();
 
-    Serial.print("แสดงรูป: ");
+    Serial.print(millis() / 1000);
+    Serial.print("s  แสดงรูป: ");
     Serial.println(FRAMES[i].name);
 
     // ไฟ LED สลับทุกเฟรม ไว้ดูว่าโปรแกรมยังวิ่งอยู่ไหม โดยไม่ต้องเปิด Serial Monitor
