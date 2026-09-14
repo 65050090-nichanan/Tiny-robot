@@ -12,11 +12,43 @@ from datetime import datetime
 
 # ESP32-CAM เกาะ Wi-Fi ชื่อ My_Robot ที่ ESP32 รีโมทปล่อยออกมา จึงได้ IP ในวง 192.168.4.x
 # เครื่อง PC ต้องต่อ Wi-Fi My_Robot ด้วย ถึงจะคุยกับกล้องได้
-# IP จริงของกล้องดูได้จาก Serial Monitor ของ ESP32-CAM หรือจากบรรทัด CAM: บนหน้าเว็บ
-# สั่งทับได้จากคอมมานด์ไลน์:  py pc_qr_scanner/qr_scanner.py 192.168.4.3
-ESP32_IP = sys.argv[1] if len(sys.argv) > 1 else '192.168.4.2'
-CAP_URL = f'http://{ESP32_IP}/capture'
+#
+# IP ของกล้องเปลี่ยนได้ทุกครั้งที่เปิดเครื่อง ขึ้นกับว่าใครมาเกาะ Wi-Fi ก่อน
+# สคริปต์จึงไล่หาเองว่ากล้องอยู่ IP ไหน แทนที่จะให้คนมานั่งแก้ตัวเลขทุกครั้ง
+# ถ้ารู้ IP อยู่แล้วก็ระบุได้:  py pc_qr_scanner/qr_scanner.py 192.168.4.3
+
 UDP_PORT = 1234
+
+
+def find_camera(explicit=None):
+    """หา IP ของ ESP32-CAM บนวง 192.168.4.x"""
+    if explicit:
+        candidates = [explicit]
+    else:
+        # 192.168.4.1 คือ ESP32 รีโมทเสมอ กล้องจึงได้ตั้งแต่ .2 ขึ้นไป
+        candidates = [f'192.168.4.{n}' for n in range(2, 21)]
+        print('🔍 กำลังไล่หากล้องในวง 192.168.4.2 ถึง 192.168.4.20 ...')
+
+    for ip in candidates:
+        try:
+            r = requests.get(f'http://{ip}/capture', timeout=1.5)
+            if r.status_code == 200 and len(r.content) > 1000:
+                print(f'✅ เจอกล้องที่ {ip}')
+                return ip
+        except Exception:
+            pass
+
+    print('❌ หากล้องไม่เจอ')
+    print('   เช็ก 3 อย่างนี้')
+    print('   1. PC ต่อ Wi-Fi ชื่อ My_Robot แล้วหรือยัง (รหัส password1234)')
+    print('   2. ESP32-CAM เปิดอยู่และเกาะ Wi-Fi ได้แล้วหรือยัง ดูจาก Serial Monitor')
+    print('   3. เปิด http://192.168.4.1 ดูบรรทัด CAM: ว่าขึ้น IP อะไร')
+    sys.exit(1)
+
+
+ESP32_IP = find_camera(sys.argv[1] if len(sys.argv) > 1 else None)
+CAP_URL = f'http://{ESP32_IP}/capture'
+
 
 
 LOG_FILE = os.path.join(os.path.expanduser('~'), 'Desktop', 'robot_mission_log.csv')
