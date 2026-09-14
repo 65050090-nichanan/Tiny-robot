@@ -58,46 +58,74 @@ print("🚀 --- Robot Scanner & Data Logger Online ---")
 print(f"📷 กล้องที่ใช้: {CAP_URL}")
 session = requests.Session()
 
+frames = 0          # จำนวนภาพที่ดึงมาได้สำเร็จ
+errors = 0          # จำนวนครั้งที่ติดต่อกล้องไม่ได้
+last_report = time.time()
+last_error_msg = ''
+
 while True:
     try:
-        response = session.get(CAP_URL, timeout=0.5)
-        if response.status_code == 200:
-            img_array = np.frombuffer(response.content, dtype=np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        # เดิมตั้ง timeout ไว้ 0.5 วินาทีซึ่งสั้นเกินไปสำหรับ ESP32-CAM
+        # ถ้ากล้องตอบช้ากว่านั้นทุกรอบจะ timeout แล้ววนเปล่าโดยไม่มีอะไรขึ้นเลย
+        response = session.get(CAP_URL, timeout=3)
+        if response.status_code != 200:
+            raise RuntimeError(f'กล้องตอบ HTTP {response.status_code}')
 
-            if img is not None:
-                for barcode in decode(img):
-                    data = barcode.data.decode('utf-8').strip().upper()
-                    
-                    if data in ANIMAL_MAP:
-                        # 1. แสดงผลบน Console
-                        print(f"✅ Found: {data}")
-                        code_to_send = ANIMAL_MAP[data]
-                        char_sent = code_to_send.decode()
-                        
-                        # 2. ส่งคำสั่งไปที่หุ่นยนต์
-                        send_to_robot(code_to_send)
-                        print(f"📡 Sent '{char_sent}' to ESP32-CAM")
-                        
-                        # 3. บันทึกข้อมูลลง CSV (เก็บผลการทดลองใส่บทที่ 4)
-                        save_log(data, char_sent)
-                        
-                        # 4. วาดกรอบบนจอ
-                        (x, y, w, h) = barcode.rect
-                        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                        cv2.putText(img, data, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                        
-                        cv2.imshow('Robot Vision', img)
-                        cv2.waitKey(1)
-                        
-                        # หยุดรอรถทำงาน 6 วินาที
-                        time.sleep(6)
-                
-                cv2.imshow('Robot Vision', img)
-    except:
-        pass
+        img_array = np.frombuffer(response.content, dtype=np.uint8)
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if img is None:
+            raise RuntimeError('ถอดรหัสภาพจากกล้องไม่ได้')
 
-    if cv2.waitKey(1) & 0xFF == ord('q'): 
+        frames += 1
+
+        for barcode in decode(img):
+            data = barcode.data.decode('utf-8').strip().upper()
+            (x, y, w, h) = barcode.rect
+
+            if data not in ANIMAL_MAP:
+                # อ่าน QR ออกแล้วแต่ข้อความไม่ตรงกับรายชื่อสัตว์ บอกให้รู้จะได้แก้ถูก
+                print(f'⚠️  อ่าน QR ได้ว่า "{data}" ซึ่งไม่ใช่ชื่อสัตว์ที่รับ')
+                print(f'    ต้องเป็นคำใดคำหนึ่งนี้เท่านั้น: {", ".join(ANIMAL_MAP)}')
+                cv2.rectangle(img, (x, y), (x + w, y + h), (0, 165, 255), 2)
+                continue
+
+            print(f'✅ Found: {data}')
+            code_to_send = ANIMAL_MAP[data]
+            char_sent = code_to_send.decode()
+
+            send_to_robot(code_to_send)
+            print(f"📡 Sent '{char_sent}' to ESP32-CAM")
+
+            save_log(data, char_sent)
+
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(img, data, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.imshow('Robot Vision', img)
+            cv2.waitKey(1)
+
+            time.sleep(6)   # รอให้หุ่นหยุดครบ 5 วินาทีก่อนสแกนรอบใหม่
+
+        cv2.imshow('Robot Vision', img)
+
+    except Exception as e:
+        errors += 1
+        msg = f'{type(e).__name__}: {e}'
+        if msg != last_error_msg:      # พิมพ์เฉพาะตอนที่ปัญหาเปลี่ยนไป ไม่ให้ท่วมจอ
+            print(f'❌ ติดต่อกล้องไม่ได้ -- {msg}')
+            last_error_msg = msg
+        time.sleep(0.3)
+
+    # รายงานสถานะทุก 5 วินาที จะได้รู้ว่าระบบเดินอยู่หรือค้าง
+    if time.time() - last_report >= 5:
+        if frames:
+            print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง')
+        else:
+            print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
+            print(f'    เช็ก: ต่อ Wi-Fi My_Robot แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
+        frames = errors = 0
+        last_report = time.time()
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 cv2.destroyAllWindows()
