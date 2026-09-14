@@ -62,7 +62,6 @@ const int FRAME_COUNT = sizeof(FRAMES) / sizeof(FRAMES[0]);
 const uint8_t OLED_COL_OFFSET = 2;  // SH1106 มี RAM 132 คอลัมน์ แต่จอจริงเริ่มที่คอลัมน์ 2
 const int OLED_CHUNK = 16;                    // ส่งข้อมูลภาพครั้งละกี่ไบต์
 const uint32_t OLED_I2C_HZ = 400000;
-const unsigned long OLED_BUS_RESET_MS = 2000;  // เริ่มเพอริเฟอรัล I2C ใหม่ทุกกี่มิลลิวินาที
 
 // ส่งคำสั่งหนึ่งไบต์ไปที่จอ
 // หมายเหตุสำคัญ: ห้ามเชื่อค่าที่ Wire.endTransmission() คืนมาบนเครื่องนี้
@@ -105,30 +104,11 @@ void oledResync() {
   oledCmd(0xAF);                  // เปิดจอ (ถ้าเปิดอยู่แล้วไม่มีผลอะไร)
 }
 
-// เริ่มเพอริเฟอรัล I2C ของ ESP32 ใหม่เป็นระยะ โดยไม่ตรวจอะไรก่อนเลย
-//
-// ถ้ารายการถูกตัดกลางคัน เช่นสายหลุดชั่วขณะขณะกำลังส่ง ตัวส่งของ ESP32 จะค้าง
-// อยู่อย่างนั้นถาวร ฝั่งที่ค้างคือตัวมันเอง ไม่ใช่จอ เสียบสายกลับก็ไม่ฟื้นเอง
-//
-// จงใจไม่ตรวจสอบอะไรก่อนสั่ง เพราะวิธีตรวจเดียวที่มีคือค่าจาก Wire.endTransmission()
-// ซึ่งบนเครื่องนี้รายงานผิด ทำโค้ดพังมาแล้วสองรอบ ทำไปเลยทุก 2 วินาทีจึงปลอดภัยกว่า
-// ไม่มีการตัดสินใจก็ให้ผลผิดไม่ได้ และการเริ่มใหม่ตอนบัสปกติก็ไม่เสียหายอะไร
-void maybeRestartI2C() {
-  static unsigned long last = 0;
-  if (millis() - last < OLED_BUS_RESET_MS) return;
-  last = millis();
-
-  Wire.end();
-  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-  Wire.setClock(OLED_I2C_HZ);
-}
-
 void pushFrame() {
   uint8_t *buf = display.getBuffer();
   if (!buf) return;
 
-  maybeRestartI2C();   // ปลดตัวส่งของ ESP32 ถ้าค้างอยู่
-  oledResync();        // ปลดชิปจอ ถ้าค้างกลางคำสั่งอยู่
+  oledResync();   // ปลดชิปจอออกจากสภาพค้างกลางคำสั่ง ถ้าบังเอิญค้างอยู่
 
   for (uint8_t page = 0; page < 64 / 8; page++) {
     oledCmd(0xB0 + page);                              // เลือกหน้าที่จะเขียน
