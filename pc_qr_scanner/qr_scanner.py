@@ -51,18 +51,43 @@ CAP_URL = f'http://{ESP32_IP}/capture'
 
 
 
-LOG_FILE = os.path.join(os.path.expanduser('~'), 'Desktop', 'robot_mission_log.csv')
+def find_desktop():
+    """หา path จริงของ Desktop
+
+    เดา ~/Desktop ตรงๆ ไม่ได้ เพราะถ้าเปิด OneDrive ไว้ Windows จะย้าย Desktop
+    ไปเป็น ~/OneDrive/Desktop และถ้าตั้งภาษาไทย ชื่อโฟลเดอร์ก็อาจไม่ใช่คำว่า Desktop
+    จึงถาม Windows เอาที่อยู่จริงก่อน แล้วค่อยไล่เดาเป็นทางเลือกสำรอง
+    """
+    if os.name == 'nt':
+        try:
+            import ctypes
+            CSIDL_DESKTOPDIRECTORY = 16
+            buf = ctypes.create_unicode_buffer(260)
+            ctypes.windll.shell32.SHGetFolderPathW(None, CSIDL_DESKTOPDIRECTORY, None, 0, buf)
+            if buf.value and os.path.isdir(buf.value):
+                return buf.value
+        except Exception:
+            pass
+
+    home = os.path.expanduser('~')
+    for path in (os.path.join(home, 'OneDrive', 'Desktop'), os.path.join(home, 'Desktop')):
+        if os.path.isdir(path):
+            return path
+    return os.path.dirname(os.path.abspath(__file__))   # หาไม่เจอจริงๆ ก็เขียนไว้ข้างสคริปต์
+
+
+LOG_FILE = os.path.join(find_desktop(), 'robot_mission_log.csv')
 
 
 try:
-    with open(LOG_FILE, mode='w', newline='', encoding='utf-8') as f:
+    with open(LOG_FILE, mode='w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
         writer.writerow(['Timestamp', 'Animal_Detected', 'Status', 'Sent_Code'])
         
         writer.writerow([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'SYSTEM', 'START_LOGGING', 'INIT'])
-    print(f"✅ บังคับสร้างไฟล์สำเร็จ! อยู่ที่หน้า Desktop: {LOG_FILE}")
+    print(f"✅ สร้างไฟล์บันทึกผลแล้ว: {LOG_FILE}")
 except Exception as e:
-    print(f"❌ ไม่สามารถสร้างไฟล์ที่ Desktop ได้: {e}")
+    print(f"❌ สร้างไฟล์บันทึกผลไม่ได้: {e}")
 
 # แผนผังรหัสสัตว์
 ANIMAL_MAP = {
@@ -79,7 +104,7 @@ def save_log(animal_name, code_char):
     """ฟังก์ชันบันทึกข้อมูลลงไฟล์ CSV"""
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
-        with open(LOG_FILE, mode='a', newline='', encoding='utf-8') as f:
+        with open(LOG_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
             writer.writerow([now, animal_name, 'STOP_5_SEC', code_char])
         print(f"📁 Data Logged to CSV: {animal_name} at {now}")

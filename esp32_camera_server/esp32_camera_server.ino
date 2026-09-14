@@ -56,8 +56,12 @@ void setup() {
   config.pin_sccb_sda = SIOD_GPIO_NUM; config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000; config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_QVGA;  // ลดขนาดภาพเพื่อกันค้าง
-  config.jpeg_quality = 15; config.fb_count = 2;
+  // ความละเอียดกับคุณภาพภาพ มีผลโดยตรงกับการอ่าน QR
+  // QVGA 320x240 พร้อมคุณภาพ 15 เล็กและเบลอเกินกว่าที่ pyzbar จะถอดลายเส้น QR ออก
+  // VGA 640x480 ให้รายละเอียดมากพอ แลกกับเฟรมเรตที่ลดลงบ้าง ซึ่งไม่สำคัญสำหรับงานนี้
+  // ตัวเลข jpeg_quality ยิ่งน้อยยิ่งคมชัด (ช่วง 10-63)
+  config.frame_size = FRAMESIZE_VGA;
+  config.jpeg_quality = 12; config.fb_count = 2;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
