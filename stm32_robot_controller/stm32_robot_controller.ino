@@ -47,8 +47,12 @@ const int TURN_SPEED_RATIO = 90;  // ความเร็วตอนหมุ�
 
 const unsigned long QR_STOP_MS = 5000;  // หยุดกี่มิลลิวินาทีเมื่อสแกน QR เจอสัตว์
 
+// เส้นชัยต้องเห็นค้างไว้นานเท่านี้ถึงจะนับว่าใช่ กันเซนเซอร์กระพริบแวบเดียวแล้วปิดออโต้
+const unsigned long FINISH_CONFIRM_MS = 80;
+
 bool isAutoMode = false;      // ตัวแปรเก็บสถานะโหมด (true = อัตโนมัติด้วย PD, false = บังคับมือ)
 unsigned long stopUntil = 0;  // หยุดนิ่งไปจนถึงเวลานี้ (millis) ใช้ตอนเจอ QR — 0 คือไม่ได้ถูกสั่งหยุด
+unsigned long finishSince = 0;  // เริ่มเห็นดำเกือบครบแถวตั้งแต่เมื่อไหร่ — 0 คือตอนนี้ไม่เห็น
 
 void setup() {
   Serial.begin(115200);   // UART1 (PA9, PA10) ยังใช้งานดู Log ได้ปกติ เริ่มการสื่อสาร USB
@@ -140,12 +144,47 @@ void handleRemoteCommand() {
   else if (command.indexOf("right") >= 0)    setSpeed(turn, -turn);            // คำสั่ง "right" ให้หมุนกลับตัวไปทางขวา
 }
 
+// พิมพ์สภาพเซนเซอร์ออกมาเป็นระยะตอนอยู่โหมดออโต้
+//
+// ถ้ากด AUTO แล้วหุ่นไม่ขยับ บรรทัดนี้ตอบได้ทันทีว่าทำไม
+//   ดำครบ 5 ดวงทั้งที่วางบนพื้นขาว = เซนเซอร์กลับลอจิก หรือสายสัญญาณไม่ได้ต่อ
+//   ขาวครบ 5 ดวงทั้งที่คร่อมเส้นอยู่ = เซนเซอร์สูงเกินไป หรือยังไม่ได้ปรับความไว
+//   ค่าไม่เปลี่ยนเลยตอนโบกมือผ่าน     = เซนเซอร์ไม่ได้จ่ายไฟ
+void reportSensors(const int *s, int blackCount) {
+  static unsigned long lastPrint = 0;
+  if (millis() - lastPrint < 300) return;
+  lastPrint = millis();
+  Serial.print("sensors L2 L1 C R1 R2 = ");
+  for (int i = 0; i < 5; i++) { Serial.print(s[i]); Serial.print(' '); }
+  Serial.print("| black="); Serial.print(blackCount);
+  Serial.print(" base=");   Serial.println(baseSpeed);
+}
+
 void runPID() {
   int s[5] = {digitalRead(pinL2), digitalRead(pinL1), digitalRead(pinC), digitalRead(pinR1), digitalRead(pinR2)};  // อ่านค่าจากเซนเซอร์ทั้ง 5 ตัวเข้าอาร์เรย์ s
 
   int blackCount = 0;  // ตัวแปรนับจำนวนเซนเซอร์ที่ตรวจพบเส้นสีดำ
   for(int i=0; i<5; i++) if(s[i] == 0) blackCount++;  // ถ้าค่าเซนเซอร์เป็น 0 (พบสีดำ) ให้เพิ่มจำนวน blackCount
-  if (blackCount >= 4) { brakeMotor(); isAutoMode = false; return; }  // ถ้าเจอสีดำตั้งแต่ 4 ดวงขึ้นไป (เข้าเส้นชัย) ให้เบรกทันทีและปิดโหมดออโต้
+
+  reportSensors(s, blackCount);
+
+  // เห็นดำตั้งแต่ 4 ดวงขึ้นไป = เข้าเส้นชัย ให้เบรกแล้วปิดโหมดออโต้
+  //
+  // แต่ต้องเห็นค้างไว้จริงๆ ไม่ใช่แวบเดียว เดิมเห็นปุ๊บปิดปั๊บ ซึ่งเกิดได้ตั้งแต่รอบแรก
+  // ของ loop จากเซนเซอร์กระพริบตอนออกตัว จากสายหลวม หรือจากเซนเซอร์ที่ลอจิกกลับด้าน
+  // อาการที่เห็นคือกด AUTO แล้วหุ่นไม่ขยับเลยสักนิด เพราะออโต้ปิดตัวเองไปก่อนจะได้สั่งล้อ
+  //
+  // เส้นชัยของจริงกว้างกว่านี้มาก หุ่นคร่อมมันนานเกิน 80 มิลลิวินาทีแน่นอน จึงไม่พลาด
+  if (blackCount >= 4) {
+    if (finishSince == 0) finishSince = millis();
+    if (millis() - finishSince < FINISH_CONFIRM_MS) return;
+    brakeMotor();
+    isAutoMode = false;
+    finishSince = 0;
+    Serial.println("finish line -> auto off");
+    return;
+  }
+  finishSince = 0;
 
   int error = 0;  // ตัวแปรเก็บค่าเบี่ยงเบนจากศูนย์กลางเส้น
   if      (s[0] == 0) error = -4;  // เซนเซอร์ซ้ายสุดเจอเส้น ดำ = เบี่ยงขวามาก (Error -4)
