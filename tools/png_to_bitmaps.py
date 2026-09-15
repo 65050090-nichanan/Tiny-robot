@@ -25,7 +25,7 @@ OUT_HEADER = os.path.join("esp32_remote_controller", "animal_bitmaps.h")
 W, H = 128, 64  # ขนาดจอ OLED
 
 # ลำดับในไฟล์ผลลัพธ์ จัดกลุ่มให้อ่านง่าย ไฟล์ที่ไม่อยู่ในนี้จะต่อท้ายให้เอง
-ORDER = ["Start", "scan1", "scan2", "Detected",
+ORDER = ["Start", "scan1", "scan2", "scan3", "Detected",
          "Dog", "cat", "Bird", "Lion", "Tiger"]
 
 

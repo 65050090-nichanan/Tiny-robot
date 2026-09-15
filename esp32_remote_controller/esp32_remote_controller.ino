@@ -132,7 +132,8 @@ struct ScanFrame {
 
 const ScanFrame SCAN_FRAMES[] = {
   { bmp_scan1, 650 },    // ลืมตาค้างไว้
-  { bmp_scan2, 120 },    // แล้วหลับแวบเดียว
+  { bmp_scan2, 90 },     // หรี่ตาลงผ่านๆ ก่อนหลับ
+  { bmp_scan3, 120 },    // แล้วหลับแวบเดียว
 };
 const int SCAN_FRAME_COUNT = sizeof(SCAN_FRAMES) / sizeof(SCAN_FRAMES[0]);
 
