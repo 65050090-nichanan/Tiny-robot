@@ -81,7 +81,6 @@ const int OLED_H = 64;   // ความสูงจอเป็นพิกเ�
 const unsigned int ANIMAL_UDP_PORT = 1235;  // พอร์ต UDP ที่รอรับรหัสสัตว์จาก ESP32-CAM
 const unsigned long ANIMAL_SHOW_MS = 5000;  // เวลารวมของช่วง "เจอแล้ว" + รูปสัตว์ (ให้เท่ากับเวลาที่หุ่นหยุด)
 const unsigned long DETECT_SHOW_MS = 1000;  // ในช่วงนั้น กระพริบภาพ "เจอแล้ว" กี่มิลลิวินาทีก่อนเปลี่ยนเป็นรูปสัตว์
-const unsigned long SCAN_FRAME_MS = 160;    // เปลี่ยนเฟรมภาพกำลังสแกนทุกกี่มิลลิวินาที
 const unsigned long START_SCREEN_MS = 2500;  // ค้างหน้าต้อนรับกี่มิลลิวินาทีนับจากบูต
 const unsigned long CAM_TIMEOUT_MS = 10000;  // ถ้าไม่ได้ข่าวจากกล้องเกินเท่านี้ ถือว่ากล้องหลุด
 
@@ -122,7 +121,19 @@ int animFrame = 0;                 // เฟรมปัจจุบันขอ
 unsigned long lastAnimDraw = 0;    // เวลาที่วาดเฟรมภาพเคลื่อนไหวครั้งล่าสุด
 
 // ภาพเคลื่อนไหวชุดกำลังสแกน เล่นวนไปเรื่อยๆ ตอนหุ่นเคลื่อนที่
-const unsigned char *const SCAN_FRAMES[] = { bmp_scan1, bmp_scan2, bmp_scan3, bmp_scan4 };
+// ภาพชุดที่เล่นวนตอนหุ่นเคลื่อนที่ เล่นไปเรื่อยๆ จนกว่าจะเจอ QR
+//
+// แต่ละเฟรมกำหนดเวลาของตัวเองได้ เพราะภาพชุดนี้เป็นตากะพริบ ไม่ใช่ภาพเคลื่อนไหวจังหวะเท่ากัน
+// ตาที่ลืมค้างไว้นานแล้วหลับแวบเดียวถึงจะดูเป็นการกะพริบ ถ้าให้เวลาเท่ากันทุกเฟรมจะดูเหมือนไฟกระพริบ
+struct ScanFrame {
+  const unsigned char *bitmap;
+  unsigned long ms;      // ค้างภาพนี้ไว้กี่มิลลิวินาทีก่อนไปเฟรมถัดไป
+};
+
+const ScanFrame SCAN_FRAMES[] = {
+  { bmp_scan1, 1600 },   // ลืมตาค้างไว้นาน
+  { bmp_scan2, 150 },    // แล้วหลับแวบเดียว
+};
 const int SCAN_FRAME_COUNT = sizeof(SCAN_FRAMES) / sizeof(SCAN_FRAMES[0]);
 
 
@@ -508,7 +519,7 @@ void drawIdleScreen() {
 }
 
 // หน้าจอกำลังสแกน เล่นวนตอนหุ่นเคลื่อนที่ จุดท้ายข้อความวิ่งตามเฟรมไปด้วย
-void drawScanScreen(int frame) { drawFullScreen(SCAN_FRAMES[frame]); }
+void drawScanScreen(int frame) { drawFullScreen(SCAN_FRAMES[frame].bitmap); }
 
 // หน้าจอเจอแล้ว กระพริบสั้นๆ ก่อนจะเฉลยว่าเป็นสัตว์อะไร
 void drawDetectScreen() { drawFullScreen(bmp_detected); }
@@ -606,9 +617,10 @@ void updateScreen() {
   }
 
   if (isMoving) {                                  // หุ่นวิ่งอยู่ = กำลังมองหา QR
-    if (now - lastAnimDraw >= SCAN_FRAME_MS) {
+    int frame = animFrame % SCAN_FRAME_COUNT;
+    if (lastAnimDraw == 0 || now - lastAnimDraw >= SCAN_FRAMES[frame].ms) {
       lastAnimDraw = now;
-      drawScanScreen(animFrame % SCAN_FRAME_COUNT);
+      drawScanScreen(frame);
       animFrame++;
     }
     idleDirty = true;                              // พอหยุดวิ่งจะได้กลับไปวาดหน้าสถานะทันที

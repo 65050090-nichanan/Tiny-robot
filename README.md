@@ -57,9 +57,11 @@ The OLED switches between five screens on its own. Every screen except Status is
 |:--|:--|:--|
 | 👋 Welcome | First 2.5 s after boot (`START_SCREEN_MS`) | `Start.png` |
 | 📊 Status | Robot stopped | Drawn as text: `MODE`, `SPEED`, camera IP |
-| 🔎 Scanning | Whole time the robot is moving | `scan1.png`–`scan4.png` looping at `SCAN_FRAME_MS` |
+| 🔎 Scanning | Whole time the robot is moving | `scan1.png` and `scan2.png` — a pair of eyes blinking until a QR turns up |
 | 🎯 Found | First 1 s after a QR hit (`DETECT_SHOW_MS`) | `Detected.png` |
 | 🐾 Animal | Rest of the 5 s stop | `Dog.png`, `cat.png`, `Bird.png`, `Lion.png`, `Tiger.png` |
+
+The scanning loop is a blink, so its two frames hold for different lengths: the open eyes stay up for 1600 ms and the closed ones flash past in 150 ms. Equal timing would read as a flashing light rather than a blink, so each entry in `SCAN_FRAMES` carries its own duration.
 
 "Moving" is inferred on the remote from the last command it forwarded: any direction button or `MODE:AUTO` sets it, `stop` and `MODE:MANUAL` clear it. `updateScreen()` drives the whole sequence and redraws only when a frame is actually due — the still screens are drawn once and left alone.
 
