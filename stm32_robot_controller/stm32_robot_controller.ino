@@ -47,6 +47,15 @@ const int TURN_SPEED_RATIO = 90;  // ความเร็วตอนหมุ�
 
 const unsigned long QR_STOP_MS = 5000;  // หยุดกี่มิลลิวินาทีเมื่อสแกน QR เจอสัตว์
 
+// ---------- ลอจิกของเซนเซอร์ ----------
+// บอร์ดเซนเซอร์สะท้อนแสงมีสองแบบ แบบหนึ่งออก LOW ตอนเจอสีดำ อีกแบบออก HIGH
+// ตั้งค่านี้ให้ตรงกับบอร์ดที่ใช้จริง แล้วโค้ดที่เหลือคิดในหน่วยเดียวกันหมดคือ 1 = อยู่บนเส้นดำ
+//
+// ตั้งผิดแล้วอาการชัดมาก หุ่นที่วางคร่อมเส้นพอดีจะมีเซนเซอร์อยู่นอกเส้น 4 ดวง เหลือกลางดวงเดียวที่ทับเส้น
+// ถ้าลอจิกกลับด้าน โค้ดจะนับ 4 ดวงที่อยู่บนพื้นขาวว่าเป็นสีดำ แล้วประกาศว่าถึงเส้นชัยทันที
+// หุ่นจึงเบรกแล้วปิดออโต้ตั้งแต่วินาทีแรกที่วางลงบนเส้น ทั้งที่ยังไม่ได้เคลื่อนไปไหนเลย
+const bool SENSOR_BLACK_IS_LOW = false;
+
 // ---------- เงื่อนไขการหยุดที่เส้นชัย ----------
 // ตั้ง false ถ้าไม่อยากให้หุ่นหยุดเองเลย ไม่ว่าจะเจอแถบดำกว้างแค่ไหน
 const bool STOP_AT_FINISH_LINE = true;
@@ -151,29 +160,41 @@ void handleRemoteCommand() {
   else if (command.indexOf("right") >= 0)    setSpeed(turn, -turn);            // คำสั่ง "right" ให้หมุนกลับตัวไปทางขวา
 }
 
+// อ่านเซนเซอร์หนึ่งตัว คืนค่า 1 = อยู่บนเส้นดำ, 0 = อยู่บนพื้นขาว
+// ไม่ว่าบอร์ดจะออกลอจิกทางไหน โค้ดที่เรียกใช้ก็ไม่ต้องรู้
+int readBlack(int pin) {
+  int raw = digitalRead(pin);
+  return SENSOR_BLACK_IS_LOW ? (raw == LOW) : (raw == HIGH);
+}
+
 // พิมพ์สภาพเซนเซอร์ออกมาเป็นระยะตอนอยู่โหมดออโต้
 //
-// ถ้ากด AUTO แล้วหุ่นไม่ขยับ บรรทัดนี้ตอบได้ทันทีว่าทำไม
-//   ดำครบ 5 ดวงทั้งที่วางบนพื้นขาว = เซนเซอร์กลับลอจิก หรือสายสัญญาณไม่ได้ต่อ
-//   ขาวครบ 5 ดวงทั้งที่คร่อมเส้นอยู่ = เซนเซอร์สูงเกินไป หรือยังไม่ได้ปรับความไว
-//   ค่าไม่เปลี่ยนเลยตอนโบกมือผ่าน     = เซนเซอร์ไม่ได้จ่ายไฟ
-void reportSensors(const int *s, int blackCount) {
+// พิมพ์ทั้งค่าดิบที่ขาอ่านได้ และค่าที่ตีความแล้ว จะได้เห็นว่า SENSOR_BLACK_IS_LOW ตั้งถูกไหม
+// วางหุ่นคร่อมเส้นให้กลางทับเส้นพอดี แล้วดูบรรทัด black ต้องได้ 0 0 1 0 0
+// ถ้าได้ 1 1 0 1 1 คือกลับด้าน ให้สลับค่า SENSOR_BLACK_IS_LOW บนหัวไฟล์
+void reportSensors(const int *raw, const int *black, int blackCount) {
   static unsigned long lastPrint = 0;
   if (millis() - lastPrint < 300) return;
   lastPrint = millis();
-  Serial.print("sensors L2 L1 C R1 R2 = ");
-  for (int i = 0; i < 5; i++) { Serial.print(s[i]); Serial.print(' '); }
-  Serial.print("| black="); Serial.print(blackCount);
+  Serial.print("raw   ");
+  for (int i = 0; i < 5; i++) { Serial.print(raw[i]); Serial.print(' '); }
+  Serial.print("| black ");
+  for (int i = 0; i < 5; i++) { Serial.print(black[i]); Serial.print(' '); }
+  Serial.print("| count="); Serial.print(blackCount);
   Serial.print(" base=");   Serial.println(baseSpeed);
 }
 
 void runPID() {
-  int s[5] = {digitalRead(pinL2), digitalRead(pinL1), digitalRead(pinC), digitalRead(pinR1), digitalRead(pinR2)};  // อ่านค่าจากเซนเซอร์ทั้ง 5 ตัวเข้าอาร์เรย์ s
+  const int pins[5] = {pinL2, pinL1, pinC, pinR1, pinR2};
+  int raw[5], s[5];
+  int blackCount = 0;  // จำนวนเซนเซอร์ที่อยู่บนเส้นดำ
+  for (int i = 0; i < 5; i++) {
+    raw[i] = digitalRead(pins[i]);
+    s[i] = readBlack(pins[i]);   // s[i] == 1 หมายถึงตัวนั้นอยู่บนเส้นดำ
+    blackCount += s[i];
+  }
 
-  int blackCount = 0;  // ตัวแปรนับจำนวนเซนเซอร์ที่ตรวจพบเส้นสีดำ
-  for(int i=0; i<5; i++) if(s[i] == 0) blackCount++;  // ถ้าค่าเซนเซอร์เป็น 0 (พบสีดำ) ให้เพิ่มจำนวน blackCount
-
-  reportSensors(s, blackCount);
+  reportSensors(raw, s, blackCount);
 
   // เจอดำทั้งแถว มีสองความหมาย แยกกันที่ว่าเห็นค้างนานแค่ไหน
   //
@@ -201,12 +222,12 @@ void runPID() {
   finishSince = 0;  // ดำหายไปก่อนครบเวลา แปลว่าเป็นทางแยก ไม่ใช่เส้นชัย เริ่มนับใหม่
 
   int error = 0;  // ตัวแปรเก็บค่าเบี่ยงเบนจากศูนย์กลางเส้น
-  if      (s[0] == 0) error = -4;  // เซนเซอร์ซ้ายสุดเจอเส้น ดำ = เบี่ยงขวามาก (Error -4)
-  else if (s[1] == 0) error = -2;  // เซนเซอร์ซ้ายกลางเจอเส้น ดำ = เบี่ยงขวาเล็กน้อย (Error -2)
-  else if (s[2] == 0) error = 0;   // เซนเซอร์กลางเจอเส้น ดำ = อยู่ตรงกลางพอดี (Error 0)
-  else if (s[3] == 0) error = 2;   // เซนเซอร์ขวากลางเจอเส้น ดำ = เบี่ยงซ้ายเล็กน้อย (Error 2)
-  else if (s[4] == 0) error = 4;   // เซนเซอร์ขวาสุดเจอเส้น ดำ = เบี่ยงซ้ายมาก (Error 4)
-  else if (blackCount == 0) { setSpeed(-100, -100); return; }  // ถ้าไม่เจอสีดำเลยสักดวง (หลุดเส้น) ให้ถอยหลังช้าๆ เพื่อกลับเข้าหาเส้น
+  if      (s[0]) error = -4;  // ซ้ายสุดทับเส้น = หุ่นเบี่ยงไปทางขวามาก
+  else if (s[1]) error = -2;  // ซ้ายกลางทับเส้น = เบี่ยงขวาเล็กน้อย
+  else if (s[2]) error = 0;   // กลางทับเส้น = อยู่ตรงเส้นพอดี
+  else if (s[3]) error = 2;   // ขวากลางทับเส้น = เบี่ยงซ้ายเล็กน้อย
+  else if (s[4]) error = 4;   // ขวาสุดทับเส้น = เบี่ยงซ้ายมาก
+  else { setSpeed(-100, -100); return; }  // ไม่มีดวงไหนเจอเส้นเลย ถอยหลังช้าๆ กลับไปหาเส้น
 
   int output = (Kp * error) + (Kd * (error - lastError));  // คำนวณค่าควบคุม PD: (Kp * Error) + (Kd * ผลต่างของ Error)
   lastError = error;  // บันทึกค่า Error ปัจจุบันไว้ใช้เป็น lastError ในรอบถัดไป

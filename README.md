@@ -213,6 +213,7 @@ While the count is high but the timer has not run out, the robot drives straight
 
 | Constant | Default | What it does |
 |:--|:--:|:--|
+| `SENSOR_BLACK_IS_LOW` | `false` | Which logic level the sensor board puts out over black. Get this wrong and the four sensors sitting on white either side of the line are counted as black, which reads as a finish line the moment the robot is placed on the course. |
 | `STOP_AT_FINISH_LINE` | `true` | Set to `false` and the robot never stops itself, whatever it sees. |
 | `FINISH_BLACK_COUNT` | `5` | How many of the five sensors must read black. `5` means the whole row. |
 | `FINISH_CONFIRM_MS` | `300` | How long that must hold before it counts as the finish. |
@@ -220,10 +221,10 @@ While the count is high but the timer has not run out, the robot drives straight
 While auto mode is on, the firmware prints the sensor bits three times a second:
 
 ```text
-sensors L2 L1 C R1 R2 = 1 1 0 1 1 | black=1 base=180
+raw   0 0 1 0 0 | black 0 0 1 0 0 | count=1 base=180
 ```
 
-All zeros on a white floor means the sensor logic is inverted or the signal wires are not connected; all ones across the line means the sensitivity trimmer needs adjusting; readings that never change mean the sensor board has no power.
+Sit the robot on the line with the middle sensor over it and read the `black` row: it should say `0 0 1 0 0`. If it says `1 1 0 1 1`, `SENSOR_BLACK_IS_LOW` is set the wrong way round. Readings that never change whatever is under the sensors mean the board has no power or the signal wires are not connected.
 
 ## ✅ Confirming which firmware is running
 
