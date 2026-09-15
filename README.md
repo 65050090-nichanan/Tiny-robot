@@ -19,7 +19,7 @@
 
 | | |
 |---|---|
-| 🛣️ **Follow a line** | Five-sensor black-line following with a PD controller, plus recovery when the line is briefly lost and active braking at the finish line. |
+| 🛣️ **Follow a line** | Five-sensor black-line following with a PD controller, a staged search when the line is lost, and active braking at the finish line. |
 | 🎮 **Take orders** | Forward, backward, left, right and stop from any phone browser, with a speed slider and an Auto/Manual switch. |
 | 📷 **See** | The ESP32-CAM streams live video straight into the remote web page. |
 | 🔍 **Read QR codes** | DOG, CAT, BIRD, LION and TIGER — decoded on the PC, sent back to the robot over Wi-Fi. |
@@ -204,6 +204,20 @@ Weak-feeling wheels are handled by the constants at the top of `stm32_robot_cont
 If the wheels are still weak after tuning `MIN_PWM`, the cause is electrical rather than firmware: check the battery under load (motors sag a pack that looks fine at rest), confirm the motor supply does not come from the STM32 regulator, confirm the DRV8833 `nSLEEP` pin is pulled high, and check that the driver is not going into thermal shutdown.
 
 The current controller uses `Kp=80`, `Kd=30` and a default `baseSpeed=180` that the web slider overrides (clamped to 120–255). It is a PD controller, not a full PID controller.
+
+## 🧭 Finding the line again
+
+Losing the line used to mean reversing in a straight line and nothing else, which only helps when the robot overshot a straight. Come off the track on a bend and the line is off to one side, so reversing straight never brings it back.
+
+The search now runs in three stages, ordered by how likely each cause is. `lastError` remembers which side the line was on — negative for left, positive for right — and every stage leans that way first.
+
+| Stage | For the first | What the robot does |
+|:--|:--:|:--|
+| 1. Back up | `BACKUP_MS` = 400 ms | Reverses, angled toward the side the line was last seen. Covers the common case of taking a bend too fast. |
+| 2. Sweep | until `SEARCH_GIVE_UP_MS` | Pivots on the spot toward that side, then alternates, each leg wider than the last — a narrow sweep that found nothing means the line is further out. |
+| 3. Give up | `SEARCH_GIVE_UP_MS` = 6 s | Brakes and leaves auto mode, rather than wandering off the table. Prints `line not found -> auto off`. |
+
+`SWEEP_STEP_MS` = 350 ms sets the width of the first sweep leg; leg *n* lasts *n*+1 times that.
 
 ## 🏁 Deciding it has finished
 

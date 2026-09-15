@@ -56,6 +56,11 @@ const unsigned long QR_STOP_MS = 5000;  // หยุดกี่มิลลิ�
 // หุ่นจึงเบรกแล้วปิดออโต้ตั้งแต่วินาทีแรกที่วางลงบนเส้น ทั้งที่ยังไม่ได้เคลื่อนไปไหนเลย
 const bool SENSOR_BLACK_IS_LOW = false;
 
+// ---------- การตามหาเส้นเมื่อหลุดออกไป ----------
+const unsigned long BACKUP_MS = 400;           // ถอยกลับก่อนนานเท่านี้ เผื่อแค่เลยโค้งมานิดเดียว
+const unsigned long SWEEP_STEP_MS = 350;       // ขากวาดแรกนานเท่านี้ ขาถัดๆ ไปจะกว้างขึ้นเรื่อยๆ
+const unsigned long SEARCH_GIVE_UP_MS = 6000;  // หาไม่เจอภายในเวลานี้ ถือว่าหลุดจริง หยุดแล้วปิดออโต้
+
 // ---------- เงื่อนไขการหยุดที่เส้นชัย ----------
 // ตั้ง false ถ้าไม่อยากให้หุ่นหยุดเองเลย ไม่ว่าจะเจอแถบดำกว้างแค่ไหน
 const bool STOP_AT_FINISH_LINE = true;
@@ -69,6 +74,7 @@ const unsigned long FINISH_CONFIRM_MS = 300;
 bool isAutoMode = false;      // ตัวแปรเก็บสถานะโหมด (true = อัตโนมัติด้วย PD, false = บังคับมือ)
 unsigned long stopUntil = 0;  // หยุดนิ่งไปจนถึงเวลานี้ (millis) ใช้ตอนเจอ QR — 0 คือไม่ได้ถูกสั่งหยุด
 unsigned long finishSince = 0;  // เริ่มเห็นดำเกือบครบแถวตั้งแต่เมื่อไหร่ — 0 คือตอนนี้ไม่เห็น
+unsigned long lostSince = 0;    // เริ่มหลุดออกจากเส้นตั้งแต่เมื่อไหร่ — 0 คือยังอยู่บนเส้น
 
 void setup() {
   Serial.begin(115200);   // UART1 (PA9, PA10) ยังใช้งานดู Log ได้ปกติ เริ่มการสื่อสาร USB
@@ -135,6 +141,8 @@ void handleRemoteCommand() {
   if (command.indexOf("auto") >= 0) {    // ถ้ามีคำว่า "auto" ให้เปิดโหมดอัตโนมัติ
     isAutoMode = true;
     lastError = 0;
+    lostSince = 0;
+    finishSince = 0;
     Serial.println("mode = AUTO");
     return;
   }
@@ -184,6 +192,52 @@ void reportSensors(const int *raw, const int *black, int blackCount) {
   Serial.print(" base=");   Serial.println(baseSpeed);
 }
 
+// หาเส้นกลับให้เจอเมื่อหลุดออกไป แทนที่จะถอยตรงอย่างเดียวไปเรื่อยๆ
+//
+// เดิมพอไม่เจอเส้นเลยก็ถอยตรงท่าเดียว ซึ่งช่วยได้เฉพาะตอนพุ่งเลยเส้นตรงๆ
+// ถ้าหลุดตอนเข้าโค้ง เส้นจะอยู่เยื้องไปข้างใดข้างหนึ่ง ถอยตรงยังไงก็ไม่เจอ
+//
+// ทำเป็นสามจังหวะ ไล่จากสาเหตุที่เจอบ่อยที่สุดไปหาที่เจอน้อยที่สุด
+//   1. ถอยกลับก่อน เพราะสาเหตุที่พบบ่อยที่สุดคือเข้าโค้งเร็วไปจนเลยเส้นออกมา
+//      ถอยโดยเบี่ยงไปข้างที่เห็นเส้นครั้งสุดท้าย เส้นมักกลับมาอยู่ใต้ตัวพอดี
+//   2. ยังไม่เจอก็กวาดหมุนตัว หันไปข้างที่เห็นเส้นครั้งสุดท้ายก่อน แล้วสลับข้างไปมา
+//      แต่ละขากวาดกว้างขึ้นกว่าขาก่อน เพราะถ้าวงแคบยังไม่เจอ แปลว่าเส้นอยู่ไกลกว่านั้น
+//   3. ครบเวลาที่ให้แล้วยังไม่เจอ ถือว่าไม่มีเส้นให้หาแล้ว หยุดนิ่งดีกว่าไถลไปเรื่อยจนตกโต๊ะ
+//
+// ข้างที่เห็นเส้นครั้งสุดท้ายดูจาก lastError ค่าลบคือเส้นอยู่ทางซ้าย ค่าบวกคือทางขวา
+void searchForLine() {
+  if (lostSince == 0) lostSince = millis();
+  unsigned long lost = millis() - lostSince;
+
+  if (lost >= SEARCH_GIVE_UP_MS) {
+    brakeMotor();
+    isAutoMode = false;
+    lostSince = 0;
+    Serial.println("line not found -> auto off");
+    return;
+  }
+
+  int turn = baseSpeed * TURN_SPEED_RATIO / 100;
+  bool lineWasLeft = (lastError < 0);
+
+  if (lost < BACKUP_MS) {                              // จังหวะที่ 1 ถอยกลับไปหาเส้น
+    if (lastError == 0)   setSpeed(-baseSpeed, -baseSpeed);  // หลุดทั้งที่อยู่กลางเส้น ถอยตรงๆ พอ
+    else if (lineWasLeft) setSpeed(-turn / 2, -turn);        // เส้นอยู่ซ้าย ถอยให้หัวกวาดไปทางซ้าย
+    else                  setSpeed(-turn, -turn / 2);        // เส้นอยู่ขวา ถอยให้หัวกวาดไปทางขวา
+    return;
+  }
+
+  // จังหวะที่ 2 กวาดหมุนตัวสลับข้าง ขาที่ 0 นาน 1 ช่วง ขาที่ 1 นาน 2 ช่วง ไล่กว้างขึ้นไป
+  unsigned long t = lost - BACKUP_MS;
+  int leg = 0;
+  unsigned long span = SWEEP_STEP_MS;
+  while (t >= span) { t -= span; leg++; span = SWEEP_STEP_MS * (leg + 1); }
+
+  bool goLeft = lineWasLeft ? (leg % 2 == 0) : (leg % 2 == 1);
+  if (goLeft) setSpeed(-turn, turn);   // หมุนตัวไปทางซ้าย
+  else        setSpeed(turn, -turn);   // หมุนตัวไปทางขวา
+}
+
 void runPID() {
   const int pins[5] = {pinL2, pinL1, pinC, pinR1, pinR2};
   int raw[5], s[5];
@@ -227,7 +281,9 @@ void runPID() {
   else if (s[2]) error = 0;   // กลางทับเส้น = อยู่ตรงเส้นพอดี
   else if (s[3]) error = 2;   // ขวากลางทับเส้น = เบี่ยงซ้ายเล็กน้อย
   else if (s[4]) error = 4;   // ขวาสุดทับเส้น = เบี่ยงซ้ายมาก
-  else { setSpeed(-100, -100); return; }  // ไม่มีดวงไหนเจอเส้นเลย ถอยหลังช้าๆ กลับไปหาเส้น
+  else { searchForLine(); return; }       // ไม่มีดวงไหนเจอเส้นเลย ออกตามหาเส้น
+
+  lostSince = 0;  // เจอเส้นแล้ว ล้างตัวจับเวลาการตามหา รอบหน้าที่หลุดจะได้เริ่มนับใหม่
 
   int output = (Kp * error) + (Kd * (error - lastError));  // คำนวณค่าควบคุม PD: (Kp * Error) + (Kd * ผลต่างของ Error)
   lastError = error;  // บันทึกค่า Error ปัจจุบันไว้ใช้เป็น lastError ในรอบถัดไป
