@@ -1,0 +1,21 @@
+# Python virtualenv -- สร้างใหม่ได้ด้วย pip install ไม่ต้องเก็บขึ้น git
+env/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# ผลลัพธ์จากการรันสคริปต์สแกน QR
+robot_mission_log.csv
+
+# ไฟล์ที่ Arduino IDE สร้างตอนคอมไพล์
+build/
+*.hex
+*.bin
+*.elf
+
+# ไฟล์ของระบบปฏิบัติการและเอดิเตอร์
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
