@@ -205,6 +205,26 @@ If the wheels are still weak after tuning `MIN_PWM`, the cause is electrical rat
 
 The current controller uses `Kp=80`, `Kd=30` and a default `baseSpeed=180` that the web slider overrides (clamped to 120–255). It is a PD controller, not a full PID controller.
 
+## 🏁 Deciding it has finished
+
+A black row under every sensor means one of two things, and they are told apart by how long it lasts. A junction or a crossing line is straddled for a fraction of a second; a finish bar is straddled for much longer. The check used to make no such distinction — four sensors reading black for a single loop pass ended the run permanently, so the robot would quit mid-course at the first crossing and never try again.
+
+While the count is high but the timer has not run out, the robot drives straight ahead, which is what a line follower should do at a junction anyway.
+
+| Constant | Default | What it does |
+|:--|:--:|:--|
+| `STOP_AT_FINISH_LINE` | `true` | Set to `false` and the robot never stops itself, whatever it sees. |
+| `FINISH_BLACK_COUNT` | `5` | How many of the five sensors must read black. `5` means the whole row. |
+| `FINISH_CONFIRM_MS` | `300` | How long that must hold before it counts as the finish. |
+
+While auto mode is on, the firmware prints the sensor bits three times a second:
+
+```text
+sensors L2 L1 C R1 R2 = 1 1 0 1 1 | black=1 base=180
+```
+
+All zeros on a white floor means the sensor logic is inverted or the signal wires are not connected; all ones across the line means the sensitivity trimmer needs adjusting; readings that never change mean the sensor board has no power.
+
 ## ✅ Confirming which firmware is running
 
 `setup()` prints its compile timestamp:
