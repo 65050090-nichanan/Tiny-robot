@@ -252,7 +252,7 @@ While the count is high but the timer has not run out, the robot drives straight
 | `SENSOR_BLACK_IS_LOW` | `true` | Which logic level the sensor board puts out over black. Get this wrong and the four sensors sitting on white either side of the line are counted as black, which reads as a finish line the moment the robot is placed on the course. |
 | `STOP_AT_FINISH_LINE` | `true` | Set to `false` and the robot never stops itself, whatever it sees. |
 | `FINISH_BLACK_COUNT` | `5` | How many of the five sensors must read black. `5` means the whole row. |
-| `FINISH_CONFIRM_MS` | `300` | How long that must hold before it counts as the finish. |
+| `FINISH_CONFIRM_MS` | `40` | How long that must hold before it counts as the finish. Long enough to reject a flickering contact, short enough that the robot cannot drive over the band before the timer expires. |
 
 While auto mode is on, the firmware prints the sensor bits three times a second:
 
