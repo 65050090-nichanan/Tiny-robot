@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 296" width="420" height="296" role="img" aria-label="Tiny Robot, a two-wheeled cartoon robot following a line">
+  <title>Tiny Robot</title>
+
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F7FAFC"/>
+      <stop offset="1" stop-color="#CBD5E0"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#63B3ED"/>
+      <stop offset="1" stop-color="#2B6CB0"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#2D3748" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+
+    <!-- สัญญาณ Wi-Fi ที่แผ่ออกจากเสาอากาศ -->
+    <g fill="none" stroke="#4FD1C5">
+      <path d="M194 26 A 22 22 0 0 1 226 26"/>
+      <path d="M182 16 A 36 36 0 0 1 238 16"/>
+    </g>
+
+    <!-- เสาอากาศ -->
+    <path d="M210 34 V62" stroke="#A0AEC0"/>
+    <circle cx="210" cy="34" r="8" fill="#F6AD55"/>
+
+    <!-- หูซ้ายขวา -->
+    <rect x="126" y="84" width="16" height="30" rx="8" fill="#A0AEC0"/>
+    <rect x="278" y="84" width="16" height="30" rx="8" fill="#A0AEC0"/>
+
+    <!-- หัว -->
+    <rect x="138" y="60" width="144" height="80" rx="20" fill="url(#shell)"/>
+
+    <!-- จอ OLED ที่ใช้เป็นหน้า -->
+    <rect x="154" y="74" width="112" height="52" rx="10" fill="#1A202C"/>
+    <g stroke="none" fill="#4FD1C5">
+      <circle cx="184" cy="95" r="9"/>
+      <circle cx="236" cy="95" r="9"/>
+    </g>
+    <g stroke="none" fill="#F7FAFC">
+      <circle cx="187" cy="92" r="3"/>
+      <circle cx="239" cy="92" r="3"/>
+    </g>
+    <path d="M196 110 Q210 121 224 110" fill="none" stroke="#4FD1C5" stroke-width="4"/>
+
+    <!-- คอ -->
+    <rect x="196" y="138" width="28" height="12" rx="4" fill="#A0AEC0"/>
+
+    <!-- แขน -->
+    <path d="M118 172 H98 a12 12 0 0 0 -12 12 V198" fill="none" stroke="#A0AEC0" stroke-width="11"/>
+    <circle cx="86" cy="206" r="11" fill="#F6AD55"/>
+    <path d="M302 172 H322 a12 12 0 0 1 12 12 V198" fill="none" stroke="#A0AEC0" stroke-width="11"/>
+    <circle cx="334" cy="206" r="11" fill="#F6AD55"/>
+
+    <!-- ลำตัว -->
+    <rect x="116" y="148" width="188" height="78" rx="22" fill="url(#shell)"/>
+
+    <!-- กล้อง ESP32-CAM -->
+    <circle cx="210" cy="187" r="22" fill="#2D3748"/>
+    <circle cx="210" cy="187" r="12" fill="url(#lens)" stroke-width="3"/>
+    <circle cx="205" cy="182" r="4" fill="#F7FAFC" stroke="none"/>
+
+    <!-- ไฟสถานะบนลำตัว -->
+    <circle cx="146" cy="172" r="7" fill="#F6AD55" stroke-width="4"/>
+    <circle cx="146" cy="200" r="7" fill="#FC8181" stroke-width="4"/>
+    <circle cx="274" cy="172" r="7" fill="#68D391" stroke-width="4"/>
+    <circle cx="274" cy="200" r="7" fill="#4FD1C5" stroke-width="4"/>
+
+    <!-- ล้อสองข้าง -->
+    <circle cx="150" cy="232" r="30" fill="#2D3748"/>
+    <circle cx="150" cy="232" r="13" fill="#718096" stroke-width="4"/>
+    <circle cx="270" cy="232" r="30" fill="#2D3748"/>
+    <circle cx="270" cy="232" r="13" fill="#718096" stroke-width="4"/>
+  </g>
+
+  <!-- เส้นดำที่หุ่นเดินตาม -->
+  <rect x="24" y="268" width="372" height="9" rx="5" fill="#4A5568"/>
+
+  <!-- ป้าย QR ที่หุ่นตามหา -->
+  <g transform="translate(340 96)">
+    <rect x="0" y="0" width="56" height="56" rx="6" fill="#F7FAFC" stroke="#2D3748" stroke-width="4"/>
+    <g fill="#2D3748">
+      <rect x="8" y="8" width="16" height="16"/>
+      <rect x="32" y="8" width="16" height="16"/>
+      <rect x="8" y="32" width="16" height="16"/>
+      <rect x="32" y="32" width="6" height="6"/>
+      <rect x="42" y="32" width="6" height="6"/>
+      <rect x="32" y="42" width="6" height="6"/>
+      <rect x="42" y="42" width="6" height="6"/>
+    </g>
+  </g>
+</svg>
