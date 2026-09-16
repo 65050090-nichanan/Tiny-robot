@@ -169,7 +169,7 @@ The OLED is an I2C 128×64 module at address `0x3C`. Change `OLED_ADDR` if your 
 
 | From → To | Channel | Messages |
 |:--|:--|:--|
-| ESP32 remote → STM32 | `Serial2`, 115200, newline-terminated | `forward` `backward` `left` `right` `stop` `MODE:AUTO` `MODE:MANUAL` `SPEED:<value>` |
+| ESP32 remote → STM32 | `Serial2`, 115200, newline-terminated | `forward` `backward` `left` `right` `stop` `MODE:AUTO` `MODE:MANUAL` `SPEED:<value>` `TRIM:<value>` |
 | PC → ESP32-CAM | UDP `1234` | `DOG→D` `CAT→C` `BIRD→B` `LION→L` `TIGER→T` |
 | ESP32-CAM → STM32 | `Serial1`→`Serial3`, 9600 | a valid animal code becomes `S`, which triggers the five-second stop |
 | ESP32-CAM → ESP32 remote | UDP `1235` | the animal code, so the OLED knows what to draw, plus `P` every 2 s so the remote learns the camera IP |
@@ -199,7 +199,7 @@ Weak-feeling wheels are handled by the constants at the top of `stm32_robot_cont
 | Constant | Default | What it does |
 |:--|:--:|:--|
 | `MIN_PWM` | `135` | Floor applied to any non-zero command, so the wheel always clears the breakaway point instead of just buzzing. Raise in steps of 10 if the robot still will not start moving; lower it if the slowest setting is too fast to steer. |
-| `LEFT_MOTOR_OFFSET` | `25` | Subtracted from the left motor when the two motors are not equally strong and the robot drifts on a straight run. Set to `0` for no compensation. |
+| `leftMotorOffset` | `25` | Corrects a robot that will not run straight because one motor is stronger. Positive takes power off the left and leans the robot left; negative takes it off the right. The **Trim** slider on the web page sets this live over `TRIM:<value>`, so it can be dialled in while the robot drives instead of one upload per guess. Range ±80. |
 
 `MIN_SPEED` follows `MIN_PWM`, and the web slider's `min` attribute is set to the same number — change all three together.
 

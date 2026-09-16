@@ -217,6 +217,13 @@ const char index_html[] PROGMEM = R"rawliteral(
         <input type="range" min="135" max="255" value="180" class="slider" oninput="updateSpeed(this.value)">
     </div>
 
+    <div class="card">
+        <label>Trim: <span id="trim-val">25</span> <small>(&lt; left &nbsp;&nbsp; right &gt;)</small></label><br><br>
+        <!-- แก้อาการเดินไม่ตรงจากมอเตอร์สองข้างแรงไม่เท่ากัน
+             เลื่อนไปทางซ้ายถ้าหุ่นเบี่ยงขวา เลื่อนไปทางขวาถ้าหุ่นเบี่ยงซ้าย -->
+        <input type="range" min="-80" max="80" value="25" class="slider" oninput="updateTrim(this.value)">
+    </div>
+
 <script>
 var websocket;
 var isAuto = false;
@@ -293,6 +300,11 @@ function toggleMode() {
         websocket.send("MODE:MANUAL");
         websocket.send("stop");
     }
+}
+
+function updateTrim(t) {
+    document.getElementById('trim-val').innerText = t;
+    if (websocket && websocket.readyState === 1) websocket.send("TRIM:" + t);
 }
 
 function updateSpeed(s) {
@@ -581,6 +593,8 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
     isMoving = false;
   } else if (msg.startsWith("SPEED:")) {
     robotSpeed = msg.substring(6).toInt();
+  } else if (msg.startsWith("TRIM:")) {
+    // ส่งต่อให้ STM32 อย่างเดียว ฝั่งนี้ไม่ต้องจำอะไร
   } else if (msg == "stop") {
     isMoving = false;
   } else {

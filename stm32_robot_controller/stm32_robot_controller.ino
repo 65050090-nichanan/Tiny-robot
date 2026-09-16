@@ -41,9 +41,13 @@ int baseSpeed = 180;  // ความเร็วพื้นฐานของ�
 // นี่คืออาการ "เดินเหมือนไม่มีแรง" ไฟล์ Safe ตัดค่านี้ทิ้งไป เลยออกตัวไม่ไหว
 // ถ้ายังอืดให้ไล่ขึ้นทีละ 10 ถ้าแรงเกินจนคุมเส้นไม่อยู่ให้ลดลงทีละ 10
 const int MIN_PWM = 135;
-// ชดเชยมอเตอร์สองข้างแรงไม่เท่ากัน ค่าบวกคือหักกำลังฝั่งซ้ายออก
-// ถ้าสั่งเดินหน้าแล้วหุ่นเบี่ยงไปข้างใดข้างหนึ่ง ให้ปรับค่านี้ ตั้ง 0 ถ้าไม่ต้องชดเชย
-const int LEFT_MOTOR_OFFSET = 25;
+// ชดเชยมอเตอร์สองข้างแรงไม่เท่ากัน ค่าบวกคือหักกำลังฝั่งซ้ายออก ทำให้หุ่นเอนไปทางซ้าย
+// ค่าลบคือหักกำลังฝั่งขวาแทน ทำให้หุ่นเอนไปทางขวา ตั้ง 0 ถ้าไม่ต้องชดเชย
+//
+// ปรับสดจากสไลเดอร์บนหน้าเว็บได้ด้วยคำสั่ง TRIM: ไม่ต้องอัปโหลดใหม่ทุกครั้งที่ลองค่าใหม่
+// ซึ่งสำคัญมาก เพราะค่าที่พอดีขึ้นกับมอเตอร์ ล้อ และน้ำหนักที่บรรทุก ต้องลองกันหลายรอบ
+int leftMotorOffset = 25;
+const int MAX_TRIM = 80;  // ขอบเขตที่ยอมให้ปรับ กันตั้งจนหุ่นหมุนอยู่กับที่
 
 const int MIN_SPEED = MIN_PWM;  // ขอบล่างของสไลเดอร์ ต่ำกว่านี้ตั้งไปก็ไม่มีผลเพราะโดน MIN_PWM ดันขึ้นอยู่ดี
 const int MAX_SPEED = 255;      // ค่า PWM สูงสุด
@@ -162,6 +166,13 @@ void handleRemoteCommand() {
   if (command.startsWith("speed:")) {
     baseSpeed = constrain(command.substring(6).toInt(), MIN_SPEED, MAX_SPEED);
     Serial.print("speed = "); Serial.println(baseSpeed);
+    return;
+  }
+
+  // ปรับความเอนซ้ายขวาได้ตลอด ใช้จูนตอนหุ่นวิ่งอยู่โดยไม่ต้องหยุดหรืออัปโหลดใหม่
+  if (command.startsWith("trim:")) {
+    leftMotorOffset = constrain(command.substring(5).toInt(), -MAX_TRIM, MAX_TRIM);
+    Serial.print("trim = "); Serial.println(leftMotorOffset);
     return;
   }
 
@@ -352,8 +363,14 @@ void setSpeed(int left, int right) {
   left = constrain(left, -255, 255);    // จำกัดช่วงความเร็วมอเตอร์ซ้ายให้อยู่ระหว่าง -255 ถึง 255
   right = constrain(right, -255, 255);  // จำกัดช่วงความเร็วมอเตอร์ขวาให้อยู่ระหว่าง -255 ถึง 255
 
-  if (left > 0) left -= LEFT_MOTOR_OFFSET;        // ชดเชยมอเตอร์ซ้ายที่แรงไม่เท่าขวา หักกำลังออกทั้งสองทิศ
-  else if (left < 0) left += LEFT_MOTOR_OFFSET;
+  // ค่าบวกหักกำลังฝั่งซ้าย ค่าลบหักกำลังฝั่งขวา หักออกเท่ากันทั้งเดินหน้าและถอยหลัง
+  if (leftMotorOffset > 0) {
+    if (left > 0) left -= leftMotorOffset;
+    else if (left < 0) left += leftMotorOffset;
+  } else if (leftMotorOffset < 0) {
+    if (right > 0) right += leftMotorOffset;
+    else if (right < 0) right -= leftMotorOffset;
+  }
 
   left = applyMinPwm(left);
   right = applyMinPwm(right);
