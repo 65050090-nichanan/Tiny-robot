@@ -232,10 +232,14 @@ The robot goes looking in three stages, ordered by how likely each cause is. `la
 | Stage | For the first | What the robot does |
 |:--|:--:|:--|
 | 1. Back up | `BACKUP_MS` = 400 ms | Reverses, angled toward the side the line was last seen. Covers the common case of taking a bend too fast. |
-| 2. Sweep | until `SEARCH_GIVE_UP_MS` | Pivots on the spot toward that side, then alternates, each leg wider than the last — a narrow sweep that found nothing means the line is further out. |
+| 2. Sweep | until `SEARCH_GIVE_UP_MS` | Pivots on the spot toward that side at `SWEEP_SPEED_RATIO` = 55% of base speed, then alternates, each leg wider than the last — a narrow sweep that found nothing means the line is further out. |
 | 3. Give up | `SEARCH_GIVE_UP_MS` = 6 s | Brakes and leaves auto mode, rather than wandering off the table. |
 
-`SWEEP_STEP_MS` = 350 ms sets the width of the first sweep leg; leg *n* lasts *n*+1 times that.
+`SWEEP_STEP_MS` = 220 ms sets the width of the first sweep leg; leg *n* lasts *n*+1 times that.
+
+Sweeping is deliberately slower than ordinary steering. A pivot is the robot looking around, and spinning fast sweeps the line under the sensor row quicker than the row can register it — the robot then overshoots and keeps hunting past a line it has already crossed.
+
+Which way the first leg goes is decided once, when a search begins, and not recomputed afterwards. With a directional hint from `lastError` it starts that way. Without one — the robot ran off a straight, so `lastError` is 0 — it starts the opposite way to last time, because a search that always begins in the same direction walks the robot further from the line every time it briefly reacquires and loses it again.
 
 The twitching this used to cause came from starting the search at every bend, not from the search itself. `LOST_CONFIRM_MS` now absorbs those, so the search only runs when the line is genuinely gone.
 

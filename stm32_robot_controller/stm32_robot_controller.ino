@@ -84,8 +84,15 @@ const unsigned long LOST_CONFIRM_MS = 150;
 
 // ---------- การตามหาเส้น ใช้เมื่อ SEARCH_WHEN_LOST เป็น true ----------
 const unsigned long BACKUP_MS = 400;           // ถอยกลับก่อนนานเท่านี้ เผื่อแค่เลยโค้งมานิดเดียว
-const unsigned long SWEEP_STEP_MS = 350;       // ขากวาดแรกนานเท่านี้ ขาถัดๆ ไปจะกว้างขึ้นเรื่อยๆ
+const unsigned long SWEEP_STEP_MS = 220;       // ขากวาดแรกนานเท่านี้ ขาถัดๆ ไปจะกว้างขึ้นเรื่อยๆ
 const unsigned long SEARCH_GIVE_UP_MS = 6000;  // หาไม่เจอภายในเวลานี้ ถือว่าหลุดจริง หยุดแล้วปิดออโต้
+
+// ความเร็วตอนกวาดหาเส้น คิดเป็นเปอร์เซ็นต์ของ baseSpeed
+//
+// ต้องช้ากว่าตอนเลี้ยวปกติมาก เพราะการกวาดคือการหมุนตัวอยู่กับที่เพื่อ "มอง" หาเส้น
+// ถ้าหมุนเร็ว เส้นจะผ่านใต้แถวเซนเซอร์ไปเร็วเกินกว่าจะจับได้ แล้วก็เลยไปไกลกว่าที่ตั้งใจ
+// อาการที่เห็นคือหุ่นเหวี่ยงตัวแรงเกินไปและหาเส้นไม่เจอทั้งที่กวาดผ่านมันไปแล้ว
+const int SWEEP_SPEED_RATIO = 55;
 
 // ---------- เงื่อนไขการหยุดที่เส้นชัย ----------
 // ตั้ง false ถ้าไม่อยากให้หุ่นหยุดเองเลย ไม่ว่าจะเจอแถบดำกว้างแค่ไหน
@@ -106,6 +113,7 @@ bool isAutoMode = false;      // ตัวแปรเก็บสถานะ�
 unsigned long stopUntil = 0;  // หยุดนิ่งไปจนถึงเวลานี้ (millis) ใช้ตอนเจอ QR — 0 คือไม่ได้ถูกสั่งหยุด
 unsigned long finishSince = 0;  // เริ่มเห็นดำเกือบครบแถวตั้งแต่เมื่อไหร่ — 0 คือตอนนี้ไม่เห็น
 unsigned long lostSince = 0;    // เริ่มหลุดออกจากเส้นตั้งแต่เมื่อไหร่ — 0 คือยังอยู่บนเส้น
+bool searchStartLeft = false;   // รอบนี้จะเริ่มกวาดไปทางซ้ายหรือขวา ตั้งตอนเริ่มหาแต่ละครั้ง
 
 void setup() {
   Serial.begin(115200);   // UART1 (PA9, PA10) ยังใช้งานดู Log ได้ปกติ เริ่มการสื่อสาร USB
@@ -236,7 +244,18 @@ void reportSensors(const int *raw, const int *black, int blackCount) {
 // ระหว่างรอยืนยันจะเลี้ยวต่อไปทางเดิมด้วยค่า error ล่าสุด ซึ่งคือทิศที่กำลังไล่ตามเส้นอยู่
 // โค้งส่วนใหญ่จึงผ่านไปได้โดยไม่มีอะไรเกิดขึ้น หุ่นไม่ต้องหยุดและไม่ต้องกระตุก
 void handleLostLine() {
-  if (lostSince == 0) lostSince = millis();
+  if (lostSince == 0) {
+    lostSince = millis();
+
+    // เลือกข้างที่จะเริ่มกวาดตอนเริ่มหาแต่ละครั้ง ไม่ใช่คำนวณใหม่ทุกรอบของ loop
+    //
+    // ถ้ารู้ว่าเส้นอยู่ข้างไหนก็เริ่มจากข้างนั้น แต่ถ้าหลุดตอนวิ่งตรงจะไม่มีเบาะแสเลย
+    // (lastError เป็น 0) กรณีนั้นถ้าเลือกข้างเดิมทุกครั้ง หุ่นจะกวาดไปทางเดียวตลอด
+    // แล้วยิ่งออกห่างจากเส้นไปเรื่อยๆ จึงสลับข้างจากรอบก่อนแทน
+    if (lastError < 0)      searchStartLeft = true;
+    else if (lastError > 0) searchStartLeft = false;
+    else                    searchStartLeft = !searchStartLeft;
+  }
 
   if (millis() - lostSince < LOST_CONFIRM_MS) {
     int output = Kp * lastError;   // เลี้ยวต่อไปทางเดิม เผื่อเส้นแค่เลยออกนอกแถวชั่วคราว
@@ -278,12 +297,12 @@ void searchForLine() {
   }
 
   int turn = baseSpeed * TURN_SPEED_RATIO / 100;
-  bool lineWasLeft = (lastError < 0);
+  int sweep = baseSpeed * SWEEP_SPEED_RATIO / 100;
 
-  if (lost < BACKUP_MS) {                              // จังหวะที่ 1 ถอยกลับไปหาเส้น
-    if (lastError == 0)   setSpeed(-baseSpeed, -baseSpeed);  // หลุดทั้งที่อยู่กลางเส้น ถอยตรงๆ พอ
-    else if (lineWasLeft) setSpeed(-turn / 2, -turn);        // เส้นอยู่ซ้าย ถอยให้หัวกวาดไปทางซ้าย
-    else                  setSpeed(-turn, -turn / 2);        // เส้นอยู่ขวา ถอยให้หัวกวาดไปทางขวา
+  if (lost < BACKUP_MS) {                                    // จังหวะที่ 1 ถอยกลับไปหาเส้น
+    if (lastError == 0)        setSpeed(-baseSpeed, -baseSpeed);  // หลุดทั้งที่อยู่กลางเส้น ถอยตรงๆ พอ
+    else if (searchStartLeft)  setSpeed(-turn / 2, -turn);        // เส้นอยู่ซ้าย ถอยให้หัวกวาดไปทางซ้าย
+    else                       setSpeed(-turn, -turn / 2);        // เส้นอยู่ขวา ถอยให้หัวกวาดไปทางขวา
     return;
   }
 
@@ -293,9 +312,9 @@ void searchForLine() {
   unsigned long span = SWEEP_STEP_MS;
   while (t >= span) { t -= span; leg++; span = SWEEP_STEP_MS * (leg + 1); }
 
-  bool goLeft = lineWasLeft ? (leg % 2 == 0) : (leg % 2 == 1);
-  if (goLeft) setSpeed(-turn, turn);   // หมุนตัวไปทางซ้าย
-  else        setSpeed(turn, -turn);   // หมุนตัวไปทางขวา
+  bool goLeft = (leg % 2 == 0) ? searchStartLeft : !searchStartLeft;
+  if (goLeft) setSpeed(-sweep, sweep);   // หมุนตัวไปทางซ้ายช้าๆ
+  else        setSpeed(sweep, -sweep);   // หมุนตัวไปทางขวาช้าๆ
 }
 
 void runPID() {
