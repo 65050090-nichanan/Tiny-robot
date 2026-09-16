@@ -215,19 +215,19 @@ No sensor over the line does not mean the robot is lost. A tight bend swings the
 
 So nothing is decided for `LOST_CONFIRM_MS` = 150 ms. During that window the robot keeps turning the way it already was, using the last `lastError` — which is the direction that chases the line, and is what carries it round the corner. Most bends are over before the timer is.
 
-If the line is still missing after that, the robot brakes and leaves auto mode.
+If the line is still missing after that, the robot goes looking for it. Every sensor over white is not a reason to give up — it means the line is somewhere off the row and the robot has to move itself until one sensor finds it again. Stopping is reserved for the opposite reading, every sensor over black, which is the finish line.
 
 | Constant | Default | What it does |
 |:--|:--:|:--|
-| `LOST_CONFIRM_MS` | `150` | How long the line may be missing before the robot acts. Raise it if the robot still stops on tight bends. |
-| `SEARCH_WHEN_LOST` | `false` | `true` makes the robot hunt for the line instead of stopping (see below). |
+| `LOST_CONFIRM_MS` | `150` | How long the line may be missing before the robot acts. Raise it if the robot still lurches on tight bends. |
+| `SEARCH_WHEN_LOST` | `true` | `false` makes the robot brake and leave auto mode instead of searching. |
 
 <details>
-<summary><b>Hunting for the line instead of stopping</b></summary>
+<summary><b>How the search works</b></summary>
 
 <br>
 
-With `SEARCH_WHEN_LOST` set to `true` the robot goes looking, in three stages ordered by how likely each cause is. `lastError` remembers which side the line was on — negative for left, positive for right — and every stage leans that way first.
+The robot goes looking in three stages, ordered by how likely each cause is. `lastError` remembers which side the line was on — negative for left, positive for right — and every stage leans that way first.
 
 | Stage | For the first | What the robot does |
 |:--|:--:|:--|
@@ -237,7 +237,7 @@ With `SEARCH_WHEN_LOST` set to `true` the robot goes looking, in three stages or
 
 `SWEEP_STEP_MS` = 350 ms sets the width of the first sweep leg; leg *n* lasts *n*+1 times that.
 
-The search keeps the robot moving even when it has no idea where the line is, which on a real course reads as constant twitching, and it tends to drive itself further from the line than it started. Stopping and being put back on the line by hand is usually quicker, which is why it is off by default.
+The twitching this used to cause came from starting the search at every bend, not from the search itself. `LOST_CONFIRM_MS` now absorbs those, so the search only runs when the line is genuinely gone.
 
 </details>
 
