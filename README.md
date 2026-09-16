@@ -19,7 +19,7 @@
 
 | | |
 |---|---|
-| 🛣️ **Follow a line** | Five-sensor black-line following with a PD controller, a staged search when the line is lost, and active braking at the finish line. |
+| 🛣️ **Follow a line** | Five-sensor black-line following with a PD controller, bend-tolerant handling when the line drops out, and active braking at the finish line. |
 | 🎮 **Take orders** | Forward, backward, left, right and stop from any phone browser, with a speed slider and an Auto/Manual switch. |
 | 📷 **See** | The ESP32-CAM streams live video straight into the remote web page. |
 | 🔍 **Read QR codes** | DOG, CAT, BIRD, LION and TIGER — decoded on the PC, sent back to the robot over Wi-Fi. |
@@ -207,19 +207,37 @@ If the wheels are still weak after tuning `MIN_PWM`, the cause is electrical rat
 
 The current controller uses `Kp=80`, `Kd=30` and a default `baseSpeed=180` that the web slider overrides (clamped to 120–255). It is a PD controller, not a full PID controller.
 
-## 🧭 Finding the line again
+## 🧭 Losing the line
 
-Losing the line used to mean reversing in a straight line and nothing else, which only helps when the robot overshot a straight. Come off the track on a bend and the line is off to one side, so reversing straight never brings it back.
+No sensor over the line does not mean the robot is lost. A tight bend swings the line out past the end of the sensor row for a moment, and that is normal. Reacting to the first such reading makes the robot stop or lurch at every corner.
 
-The search now runs in three stages, ordered by how likely each cause is. `lastError` remembers which side the line was on — negative for left, positive for right — and every stage leans that way first.
+So nothing is decided for `LOST_CONFIRM_MS` = 150 ms. During that window the robot keeps turning the way it already was, using the last `lastError` — which is the direction that chases the line, and is what carries it round the corner. Most bends are over before the timer is.
+
+If the line is still missing after that, the robot brakes and leaves auto mode.
+
+| Constant | Default | What it does |
+|:--|:--:|:--|
+| `LOST_CONFIRM_MS` | `150` | How long the line may be missing before the robot acts. Raise it if the robot still stops on tight bends. |
+| `SEARCH_WHEN_LOST` | `false` | `true` makes the robot hunt for the line instead of stopping (see below). |
+
+<details>
+<summary><b>Hunting for the line instead of stopping</b></summary>
+
+<br>
+
+With `SEARCH_WHEN_LOST` set to `true` the robot goes looking, in three stages ordered by how likely each cause is. `lastError` remembers which side the line was on — negative for left, positive for right — and every stage leans that way first.
 
 | Stage | For the first | What the robot does |
 |:--|:--:|:--|
 | 1. Back up | `BACKUP_MS` = 400 ms | Reverses, angled toward the side the line was last seen. Covers the common case of taking a bend too fast. |
 | 2. Sweep | until `SEARCH_GIVE_UP_MS` | Pivots on the spot toward that side, then alternates, each leg wider than the last — a narrow sweep that found nothing means the line is further out. |
-| 3. Give up | `SEARCH_GIVE_UP_MS` = 6 s | Brakes and leaves auto mode, rather than wandering off the table. Prints `line not found -> auto off`. |
+| 3. Give up | `SEARCH_GIVE_UP_MS` = 6 s | Brakes and leaves auto mode, rather than wandering off the table. |
 
 `SWEEP_STEP_MS` = 350 ms sets the width of the first sweep leg; leg *n* lasts *n*+1 times that.
+
+The search keeps the robot moving even when it has no idea where the line is, which on a real course reads as constant twitching, and it tends to drive itself further from the line than it started. Stopping and being put back on the line by hand is usually quicker, which is why it is off by default.
+
+</details>
 
 ## 🏁 Deciding it has finished
 
