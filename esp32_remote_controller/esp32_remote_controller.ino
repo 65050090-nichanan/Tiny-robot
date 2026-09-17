@@ -101,6 +101,8 @@ bool isAutoMode = false;   // โหมดปัจจุบัน (true = AUTO,
 int robotSpeed = 180;      // ความเร็วล่าสุดที่ตั้งจากสไลเดอร์ (ต้องตรงกับ baseSpeed ฝั่ง STM32)
 bool hasOled = false;      // เจอจอ OLED ตอนบูตหรือไม่ ถ้าไม่เจอจะข้ามการวาดทั้งหมด
 
+String lastTelemetry = "";         // บรรทัดสถานะล่าสุดที่ STM32 ส่งมา ให้ PC มาดึงไปเก็บลง CSV
+
 String camIp = "";                 // IP ของ ESP32-CAM ที่เรียนรู้มาจากแพ็กเก็ต UDP
 unsigned long lastCamSeen = 0;     // เวลาล่าสุดที่ได้ยินเสียงกล้อง
 
@@ -244,61 +246,6 @@ function onMessage(evt) {
         setCamera(msg.substring(6));
     } else if (msg.startsWith('ANIMAL:')) {
         showAnimal(msg.substring(7));
-    }
-}
-
-function setCamera(ip) {
-    document.getElementById('link').innerText = ip ? ('CAM: ' + ip) : 'CAM: -';
-    var img = document.getElementById('cam');
-    var msg = document.getElementById('cam-msg');
-    if (!ip) {                       // กล้องหลุด กลับไปแสดงข้อความรอ
-        camUrl = "";
-        img.style.display = 'none';
-        img.removeAttribute('src');
-        msg.style.display = 'block';
-        return;
-    }
-    var url = 'http://' + ip + ':81/stream';
-    if (url === camUrl) return;      // IP เดิม ไม่ต้องโหลดสตรีมใหม่
-    camUrl = url;
-    img.onload = function() { msg.style.display = 'none'; img.style.display = 'block'; };
-    img.src = url;
-}
-
-function showAnimal(name) {
-    var badge = document.getElementById('animal-badge');
-    badge.innerText = '🐾 ' + name;
-    badge.style.display = 'block';
-    if (badgeTimer) clearTimeout(badgeTimer);
-    badgeTimer = setTimeout(function() { badge.style.display = 'none'; }, 5000);
-}
-
-function sendCmd(cmd) {
-    if (!websocket || websocket.readyState !== 1) return;
-    if (!isAuto || cmd === 'stop') websocket.send(cmd);
-}
-
-function toggleMode() {
-    if (!websocket || websocket.readyState !== 1) {   // ยังต่อไม่ติด กดไปก็ไม่มีอะไรเกิดขึ้น
-        document.getElementById('link').innerText = 'ยังต่อกับหุ่นไม่ติด รอสักครู่...';
-        return;
-    }
-    isAuto = !isAuto;
-    var btn = document.getElementById('main-btn');
-    var status = document.getElementById('status-text');
-    if (isAuto) {
-        btn.classList.add('auto-on');
-        btn.innerHTML = "AUTO<br><small>RUNNING</small>";
-        status.innerText = "AUTO";
-        status.style.color = "#0f9d58";
-        websocket.send("MODE:AUTO");
-    } else {
-        btn.classList.remove('auto-on');
-        btn.innerHTML = "STOP<br><small>MANUAL</small>";
-        status.innerText = "MANUAL";
-        status.style.color = "#e94560";
-        websocket.send("MODE:MANUAL");
-        websocket.send("stop");
     }
 }
 
@@ -570,6 +517,31 @@ void sendToStm32(const String &cmd) {
   Serial.println(cmd);
 }
 
+// อ่านสิ่งที่ STM32 ส่งกลับมา แล้วส่งต่อให้หน้าเว็บ
+//
+// สนใจเฉพาะบรรทัดที่ขึ้นต้นด้วย T: ซึ่งเป็นค่าสถานะมอเตอร์ บรรทัดอื่นเป็น log ของ STM32 เอง
+// ฝั่งนี้ไม่ตีความตัวเลขเลย ส่งต่อทั้งบรรทัด หน้าเว็บเป็นคนแยกส่วน
+// ถ้าจะเพิ่มค่าใหม่ก็แก้แค่สองที่คือฝั่ง STM32 กับ JavaScript ไม่ต้องแตะตรงนี้
+//
+// อ่านทีละไบต์แบบไม่รอ เพราะ loop() ต้องไปให้บริการ WebSocket กับเว็บเซิร์ฟเวอร์ต่อ
+// readStringUntil จะบล็อกจนครบเวลา timeout ถ้าสายหลุด ซึ่งทำให้หน้าเว็บค้าง
+void pumpStm32Serial() {
+  static char line[96];
+  static uint8_t len = 0;
+
+  while (Serial2.available() > 0) {
+    char c = Serial2.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      if (len < sizeof(line) - 1) line[len++] = c;
+      continue;
+    }
+    line[len] = '\0';
+    if (len > 2 && line[0] == 'T' && line[1] == ':') lastTelemetry = String(line + 2);
+    len = 0;
+  }
+}
+
 // ======================================================
 // WebSocket
 // ======================================================
@@ -722,6 +694,12 @@ void setup() {
   Serial.println(WiFi.softAPIP());
 
   server.on("/", []() { server.send_P(200, "text/html", index_html); });
+
+  // ให้ PC มาดึงค่าสถานะล่าสุดไปเก็บลง CSV  ตอบเป็นบรรทัดเดียวคั่นด้วยจุลภาค
+  //   <โหมด>,<ความเร็วฐาน>,<PWM ซ้าย>,<PWM ขวา>,<ค่าเลี้ยว>,<trim>,<เซนเซอร์ที่ทับเส้น>
+  // ถ้ายังไม่เคยได้ยินอะไรจาก STM32 จะตอบบรรทัดว่าง ฝั่ง PC จะได้รู้ว่าสายยังไม่ติด
+  server.on("/telemetry", []() { server.send(200, "text/plain", lastTelemetry); });
+
   server.begin();
 
   webSocket.begin();
@@ -751,6 +729,7 @@ void loop() {
     Serial.println("ขาดการติดต่อกับกล้อง");
   }
 
+  pumpStm32Serial();  // รับค่าสถานะจาก STM32 ส่งต่อให้หน้าเว็บ
   updateScreen();  // เครื่องสถานะของจอ ตัดสินใจเองว่ารอบนี้ต้องวาดอะไรไหม
   blinkOnce();     // ทดสอบครั้งเดียวว่าจอยังฟังคำสั่งอยู่ไหม
 

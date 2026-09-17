@@ -115,6 +115,15 @@ unsigned long finishSince = 0;  // เริ่มเห็นดำเกือ
 unsigned long lostSince = 0;    // เริ่มหลุดออกจากเส้นตั้งแต่เมื่อไหร่ — 0 คือยังอยู่บนเส้น
 bool searchStartLeft = false;   // รอบนี้จะเริ่มกวาดไปทางซ้ายหรือขวา ตั้งตอนเริ่มหาแต่ละครั้ง
 
+// ---------- ค่าที่ส่งกลับไปโชว์บนหน้าเว็บ ----------
+// เก็บสิ่งที่สั่งออกไปจริงๆ ไม่ใช่สิ่งที่ตั้งใจจะสั่ง ค่าพวกนี้ผ่าน constrain, trim และ MIN_PWM มาแล้ว
+// จึงเป็นตัวเลขเดียวกับที่ไปถึงมอเตอร์ ซึ่งเป็นสิ่งที่ต้องรู้ตอนจูน
+int cmdLeft = 0;      // PWM ที่สั่งล้อซ้ายครั้งล่าสุด ติดลบคือหมุนถอยหลัง
+int cmdRight = 0;     // PWM ที่สั่งล้อขวาครั้งล่าสุด
+int steerOutput = 0;  // ค่าการเลี้ยวล่าสุดจาก PD ติดลบคือเลี้ยวซ้าย บวกคือเลี้ยวขวา
+int blackSeen = 0;    // จำนวนเซนเซอร์ที่ทับเส้นอยู่ตอนนี้
+const unsigned long TELEMETRY_MS = 200;  // ส่งค่าสถานะกลับทุกกี่มิลลิวินาที
+
 void setup() {
   Serial.begin(115200);   // UART1 (PA9, PA10) ยังใช้งานดู Log ได้ปกติ เริ่มการสื่อสาร USB
   Serial2.begin(115200);  // UART2 (PA2, PA3) รับคำสั่งจาก ESP32 รีโมท
@@ -147,6 +156,30 @@ void loop() {
   }
 
   if (isAutoMode) runPID();  // ถ้าเปิดโหมดอัตโนมัติ ให้ประมวลผลการวิ่งตามเส้นด้วยระบบ PD
+
+  sendTelemetry();  // รายงานสถานะกลับไปให้หน้าเว็บ
+}
+
+// ส่งค่าสถานะกลับไปให้ ESP32 รีโมทเอาไปโชว์บนหน้าเว็บ
+//
+// ส่งเป็นบรรทัดเดียวคั่นด้วยจุลภาค สั้นและแยกส่วนง่าย ฝั่งรีโมทแค่ส่งต่อไม่ต้องตีความ
+//   T:<โหมด>,<ความเร็วฐาน>,<PWM ซ้าย>,<PWM ขวา>,<ค่าเลี้ยว>,<trim>,<เซนเซอร์ที่ทับเส้น>
+//
+// ตัวเลขที่ส่งคือค่าที่สั่งมอเตอร์จริง ผ่าน trim และ MIN_PWM มาแล้ว ไม่ใช่ค่าที่ตั้งใจจะสั่ง
+// ตอนจูนต้องดูตัวนี้ เพราะสิ่งที่คำนวณได้กับสิ่งที่มอเตอร์ได้รับมักไม่ใช่ตัวเดียวกัน
+void sendTelemetry() {
+  static unsigned long last = 0;
+  if (millis() - last < TELEMETRY_MS) return;
+  last = millis();
+
+  Serial2.print("T:");
+  Serial2.print(isAutoMode ? 'A' : 'M');  Serial2.print(',');
+  Serial2.print(baseSpeed);               Serial2.print(',');
+  Serial2.print(cmdLeft);                 Serial2.print(',');
+  Serial2.print(cmdRight);                Serial2.print(',');
+  Serial2.print(steerOutput);             Serial2.print(',');
+  Serial2.print(leftMotorOffset);         Serial2.print(',');
+  Serial2.println(blackSeen);
 }
 
 // รับตัวอักษร 'S' จาก ESP32-CAM แล้วเบรกหยุด 5 วินาที
@@ -327,6 +360,7 @@ void runPID() {
     blackCount += s[i];
   }
 
+  blackSeen = blackCount;
   reportSensors(raw, s, blackCount);
 
   // เจอดำทั้งแถว มีสองความหมาย แยกกันที่ว่าเห็นค้างนานแค่ไหน
@@ -365,6 +399,7 @@ void runPID() {
   lostSince = 0;  // เจอเส้นแล้ว ล้างตัวจับเวลาการตามหา รอบหน้าที่หลุดจะได้เริ่มนับใหม่
 
   int output = (Kp * error) + (Kd * (error - lastError));  // คำนวณค่าควบคุม PD: (Kp * Error) + (Kd * ผลต่างของ Error)
+  steerOutput = output;  // เก็บไว้ส่งกลับไปโชว์
   lastError = error;  // บันทึกค่า Error ปัจจุบันไว้ใช้เป็น lastError ในรอบถัดไป
 
   setSpeed(baseSpeed + output, baseSpeed - output);  // ปรับความเร็วมอเตอร์ซ้าย-ขวา ตามผลลัพธ์ PD ที่คำนวณได้
@@ -400,9 +435,13 @@ void setSpeed(int left, int right) {
 
   if (right >= 0) { analogWrite(BIN1, 0); analogWrite(BIN2, right); }  // ถ้าค่าเป็นบวก สั่งมอเตอร์ขวาหมุนเดินหน้าด้วยความเร็วแบบ PWM
   else { analogWrite(BIN1, abs(right)); analogWrite(BIN2, 0); }        // ถ้าค่าเป็นลบ สั่งมอเตอร์ขวาหมุนถอยหลังด้วยความเร็วแบบ PWM (ใช้ค่าสัมบูรณ์)
+
+  cmdLeft = left;    // จำไว้ส่งกลับไปโชว์บนหน้าเว็บ
+  cmdRight = right;
 }
 
 void stopMotor() {
+  cmdLeft = cmdRight = 0;
   analogWrite(AIN1, 0); analogWrite(AIN2, 0);  // ปล่อยสัญญาณ PWM เป็น 0 ทั้งสองขาของมอเตอร์ซ้าย (หยุดหมุน/ปล่อยไหล)
   analogWrite(BIN1, 0); analogWrite(BIN2, 0);  // ปล่อยสัญญาณ PWM เป็น 0 ทั้งสองขาของมอเตอร์ขวา (หยุดหมุน/ปล่อยไหล)
 }

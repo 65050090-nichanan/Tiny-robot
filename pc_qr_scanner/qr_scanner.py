@@ -19,6 +19,11 @@ from datetime import datetime
 
 UDP_PORT = 1234
 
+# ESP32 รีโมทเป็นตัวปล่อย Wi-Fi จึงเป็นเกตเวย์ของวงเสมอ ไม่เปลี่ยนเหมือน IP กล้อง
+ROBOT_IP = '192.168.4.1'
+TELEMETRY_URL = f'http://{ROBOT_IP}/telemetry'
+TELEMETRY_EVERY_S = 1.0     # บันทึกค่าสถานะลง CSV ทุกกี่วินาที
+
 
 def find_camera(explicit=None):
     """หา IP ของ ESP32-CAM บนวง 192.168.4.x"""
@@ -79,12 +84,14 @@ def find_desktop():
 LOG_FILE = os.path.join(find_desktop(), 'robot_mission_log.csv')
 
 
+# หัวตารางของ CSV หนึ่งคอลัมน์ต่อหนึ่งค่า เปิดใน Excel แล้วเลือกคอลัมน์ไปพล็อตกราฟได้เลย
+# ถ้ายุบหลายค่าไว้ช่องเดียวจะต้องมานั่งแยกข้อความทีหลัง
+HEADER = ['Timestamp', 'Event', 'Animal', 'Sent_Code',
+          'Mode', 'Base_Speed', 'Left_PWM', 'Right_PWM', 'Turn', 'Trim', 'Sensors_On_Line']
+
 try:
     with open(LOG_FILE, mode='w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Timestamp', 'Animal_Detected', 'Status', 'Sent_Code'])
-        
-        writer.writerow([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'SYSTEM', 'START_LOGGING', 'INIT'])
+        csv.writer(f).writerow(HEADER)
     print(f"✅ สร้างไฟล์บันทึกผลแล้ว: {LOG_FILE}")
 except Exception as e:
     print(f"❌ สร้างไฟล์บันทึกผลไม่ได้: {e}")
@@ -100,14 +107,30 @@ def send_to_robot(code):
         sock.sendto(code, (ESP32_IP, UDP_PORT))
     except: pass
 
-def save_log(animal_name, code_char):
-    """ฟังก์ชันบันทึกข้อมูลลงไฟล์ CSV"""
+def read_telemetry(session):
+    """ดึงค่าสถานะล่าสุดจาก ESP32 รีโมท
+
+    ตอบกลับมาเป็นบรรทัดเดียว เช่น  A,180,155,180,-160,25,1
+    เรียงตาม  โหมด, ความเร็วฐาน, PWM ซ้าย, PWM ขวา, ค่าเลี้ยว, trim, เซนเซอร์ที่ทับเส้น
+
+    คืนลิสต์ 7 ช่องเสมอ ถ้าดึงไม่ได้จะเป็นช่องว่าง แถวใน CSV จะได้เรียงตรงกันทุกแถว
+    ต่อให้บางจังหวะติดต่อหุ่นไม่ได้ ซึ่งสำคัญตอนเอาไปเปิดใน Excel
+    """
+    blank = [''] * 7
+    try:
+        r = session.get(TELEMETRY_URL, timeout=1)
+        parts = r.text.strip().split(',')
+        return parts if len(parts) == 7 else blank
+    except Exception:
+        return blank
+
+
+def save_log(event, animal, code_char, tlm):
+    """เขียนหนึ่งแถวลง CSV"""
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
         with open(LOG_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow([now, animal_name, 'STOP_5_SEC', code_char])
-        print(f"📁 Data Logged to CSV: {animal_name} at {now}")
+            csv.writer(f).writerow([now, event, animal, code_char] + list(tlm))
     except Exception as e:
         print(f"❌ Logging Error: {e}")
 
@@ -118,7 +141,10 @@ session = requests.Session()
 frames = 0          # จำนวนภาพที่ดึงมาได้สำเร็จ
 errors = 0          # จำนวนครั้งที่ติดต่อกล้องไม่ได้
 last_report = time.time()
+last_telemetry = 0.0
 last_error_msg = ''
+
+save_log('START', 'SYSTEM', '', read_telemetry(session))
 
 while True:
     try:
@@ -153,7 +179,7 @@ while True:
             send_to_robot(code_to_send)
             print(f"📡 Sent '{char_sent}' to ESP32-CAM")
 
-            save_log(data, char_sent)
+            save_log('QR', data, char_sent, read_telemetry(session))
 
             cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
             cv2.putText(img, data, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
@@ -172,10 +198,20 @@ while True:
             last_error_msg = msg
         time.sleep(0.3)
 
+    # เก็บค่าความเร็วกับการเลี้ยวลง CSV เป็นระยะ ไม่ใช่เฉพาะตอนเจอ QR
+    # แถวต่อเนื่องแบบนี้พล็อตเป็นกราฟใน Excel ได้ เห็นว่าหุ่นเลี้ยวแรงตรงไหนของสนาม
+    if time.time() - last_telemetry >= TELEMETRY_EVERY_S:
+        last_telemetry = time.time()
+        tlm = read_telemetry(session)
+        if tlm[0]:
+            save_log('RUN', '', '', tlm)
+
     # รายงานสถานะทุก 5 วินาที จะได้รู้ว่าระบบเดินอยู่หรือค้าง
     if time.time() - last_report >= 5:
         if frames:
-            print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง')
+            t = read_telemetry(session)
+            state = f' | speed {t[1]} turn {t[4]} trim {t[5]}' if t[0] else ' | ยังไม่ได้ยินเสียงหุ่น'
+            print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง{state}')
         else:
             print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
             print(f'    เช็ก: ต่อ Wi-Fi My_Robot แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
