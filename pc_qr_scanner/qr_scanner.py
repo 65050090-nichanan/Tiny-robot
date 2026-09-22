@@ -104,6 +104,7 @@ def send_to_robot(code):
     except: pass
 
 TELEMETRY_FIELDS = 8   # โหมด, กำลังทำอะไร, ความเร็วฐาน, PWM ซ้าย, PWM ขวา, ค่าเลี้ยว, trim, เซนเซอร์ที่ทับเส้น
+_telemetry_problem = ''  # ปัญหาล่าสุดที่บอกไปแล้ว ไว้กันพิมพ์ซ้ำทุกวินาที
 
 
 def read_telemetry(session):
@@ -114,13 +115,30 @@ def read_telemetry(session):
     คืนลิสต์ความยาวคงที่เสมอ ถ้าดึงไม่ได้จะเป็นช่องว่าง แถวใน CSV จะได้เรียงตรงกันทุกแถว
     ต่อให้บางจังหวะติดต่อหุ่นไม่ได้ ซึ่งจำเป็นตอนเอาไปเปิดใน Excel
     """
-    blank = [''] * TELEMETRY_FIELDS
+    global _telemetry_problem
     try:
         r = session.get(TELEMETRY_URL, timeout=1)
-        parts = r.text.strip().split(',')
-        return parts if len(parts) == TELEMETRY_FIELDS else blank
-    except Exception:
-        return blank
+        body = r.text.strip()
+        parts = body.split(',')
+        if len(parts) == TELEMETRY_FIELDS:
+            _telemetry_problem = ''
+            return parts
+        if r.status_code == 404:
+            why = 'ESP32 ไม่มีหน้า /telemetry -- ยังไม่ได้อัปสเก็ตช์ esp32_remote_controller ตัวใหม่'
+        elif not body:
+            why = ('ESP32 ตอบมาว่างเปล่า -- แปลว่ายังไม่เคยได้ยินอะไรจาก STM32 เลย '
+                   'เช็กว่า STM32 อัปตัวใหม่แล้ว และสาย PA2 -> GPIO16 กับ GND ต่อครบ')
+        else:
+            why = f'ESP32 ตอบมาไม่ตรงรูปแบบ: {body[:60]}'
+    except Exception as e:
+        why = (f'ติดต่อ {TELEMETRY_URL} ไม่ได้ ({type(e).__name__}) -- '
+               'PC ต่อ Wi-Fi ชื่อ My_Robot แล้วหรือยัง')
+
+    # บอกสาเหตุครั้งเดียวต่อหนึ่งปัญหา ไม่ใช่ทุกวินาทีจนท่วมจอ
+    if why != _telemetry_problem:
+        print(f'⚠️  {why}')
+        _telemetry_problem = why
+    return [''] * TELEMETRY_FIELDS
 
 
 def save_log(event, animal, code_char, tlm):
@@ -213,9 +231,9 @@ try:
         # แถวต่อเนื่องแบบนี้พล็อตกราฟใน Excel ได้ เห็นว่าหุ่นเลี้ยวแรงตรงไหนของสนาม
         if time.time() - last_telemetry >= TELEMETRY_EVERY_S:
             last_telemetry = time.time()
-            tlm = read_telemetry(session)
-            if tlm[0]:
-                save_log('RUN', '', '', tlm)
+            # เขียนแถวเสมอแม้ติดต่อหุ่นไม่ได้ ช่องจะว่างแต่เวลายังเดิน
+            # เดิมข้ามแถวที่ว่างไปเงียบๆ ไฟล์เลยไม่โตขึ้นเลยโดยไม่มีอะไรบอกว่าทำไม
+            save_log('RUN', '', '', read_telemetry(session))
 
         # รายงานสถานะทุก 5 วินาที จะได้รู้ว่าระบบเดินอยู่หรือค้าง
         if time.time() - last_report >= 5:
