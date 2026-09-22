@@ -77,20 +77,40 @@ def find_desktop():
     return os.path.dirname(os.path.abspath(__file__))   # หาไม่เจอจริงๆ ก็เขียนไว้ข้างสคริปต์
 
 
-LOG_FILE = os.path.join(find_desktop(), 'robot_mission_log.csv')
-
-
 # หัวตารางของ CSV หนึ่งคอลัมน์ต่อหนึ่งค่า เปิดใน Excel แล้วลากคอลัมน์ไปพล็อตกราฟได้เลย
 # ถ้ายุบหลายค่าไว้ช่องเดียวจะต้องมานั่งแยกข้อความทีหลัง
 HEADER = ['Timestamp', 'Event', 'Animal', 'Sent_Code',
           'Mode', 'Action', 'Base_Speed', 'Left_PWM', 'Right_PWM', 'Turn', 'Trim', 'Sensors_On_Line']
 
-try:
-    with open(LOG_FILE, mode='w', newline='', encoding='utf-8-sig') as f:
-        csv.writer(f).writerow(HEADER)
-    print(f"✅ สร้างไฟล์บันทึกผลแล้ว: {LOG_FILE}")
-except Exception as e:
-    print(f"❌ สร้างไฟล์บันทึกผลไม่ได้: {e}")
+
+def open_log():
+    """สร้างไฟล์บันทึกผล แล้วคืน path ที่เขียนได้จริง
+
+    Windows ล็อกไฟล์ที่เปิดค้างอยู่ใน Excel ไว้ทั้งไฟล์ เขียนทับไม่ได้เลย
+    ซึ่งเกิดขึ้นตลอดเวลาเพราะคนเปิดดูผลรอบที่แล้วค้างไว้แล้วสั่งรันรอบใหม่
+    ถ้าชื่อหลักเขียนไม่ได้ก็เติมเวลาต่อท้ายแล้วใช้ชื่อใหม่ ดีกว่าวิ่งไปทั้งรอบแล้วไม่ได้ข้อมูลเลย
+    """
+    desktop = find_desktop()
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    for path in (os.path.join(desktop, 'robot_mission_log.csv'),
+                 os.path.join(desktop, f'robot_mission_log_{stamp}.csv'),
+                 os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              f'robot_mission_log_{stamp}.csv')):
+        try:
+            with open(path, mode='w', newline='', encoding='utf-8-sig') as f:
+                csv.writer(f).writerow(HEADER)
+            print(f"✅ สร้างไฟล์บันทึกผลแล้ว: {path}")
+            return path
+        except PermissionError:
+            print(f"⚠️  เขียน {os.path.basename(path)} ไม่ได้ (น่าจะเปิดค้างอยู่ใน Excel) จะลองชื่ออื่น")
+        except Exception as e:
+            print(f"⚠️  เขียน {path} ไม่ได้: {e}")
+
+    print("❌ เขียนไฟล์บันทึกผลไม่ได้เลยสักที่")
+    return None
+
+
+LOG_FILE = open_log()
 
 # แผนผังรหัสสัตว์
 ANIMAL_MAP = {
@@ -141,14 +161,27 @@ def read_telemetry(session):
     return [''] * TELEMETRY_FIELDS
 
 
+_log_problem = ''   # ปัญหาการเขียนล่าสุดที่บอกไปแล้ว
+
+
 def save_log(event, animal, code_char, tlm):
     """เขียนหนึ่งแถวลง CSV"""
+    global _log_problem
+    if LOG_FILE is None:
+        return
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
         with open(LOG_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
             csv.writer(f).writerow([now, event, animal, code_char] + list(tlm))
+        _log_problem = ''
     except Exception as e:
-        print(f"❌ Logging Error: {e}")
+        # บอกครั้งเดียวต่อหนึ่งปัญหา ของเดิมพิมพ์ทุกวินาทีจนกลบข้อความอื่นหมด
+        why = f'{type(e).__name__}: {e}'
+        if why != _log_problem:
+            print(f'❌ เขียนล็อกไม่ได้ -- {why}')
+            if isinstance(e, PermissionError):
+                print('    ปิดไฟล์นี้ใน Excel ก่อน แล้วรันใหม่')
+            _log_problem = why
 
 print("🚀 --- Robot Scanner & Data Logger Online ---")
 session = requests.Session()
@@ -261,4 +294,5 @@ except KeyboardInterrupt:
 
 
 cv2.destroyAllWindows()
-print(f"📁 บันทึกไว้ที่: {LOG_FILE}")
+if LOG_FILE:
+    print(f"📁 บันทึกไว้ที่: {LOG_FILE}")
