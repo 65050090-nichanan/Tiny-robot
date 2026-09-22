@@ -52,7 +52,7 @@
 #include "animal_bitmaps.h"  // รูปเต็มจอ 128x64 สร้างจาก tools/png_to_bitmaps.py
 
 // ---------- ค่าคงที่ตั้งค่าได้ ----------
-const char *AP_SSID = "My_Robot";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
+const char *AP_SSID = "My_Robot2";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
 const char *AP_PASSWORD = "password1234";  // รหัสผ่าน Wi-Fi (ต้องยาวอย่างน้อย 8 ตัว)
 
 const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อมูลจาก STM32
@@ -100,6 +100,8 @@ Adafruit_SSD1306 display(OLED_W, OLED_H, &Wire, -1, OLED_I2C_HZ, OLED_I2C_HZ);
 bool isAutoMode = false;   // โหมดปัจจุบัน (true = AUTO, false = MANUAL)
 int robotSpeed = 180;      // ความเร็วล่าสุดที่ตั้งจากสไลเดอร์ (ต้องตรงกับ baseSpeed ฝั่ง STM32)
 bool hasOled = false;      // เจอจอ OLED ตอนบูตหรือไม่ ถ้าไม่เจอจะข้ามการวาดทั้งหมด
+
+String lastTelemetry = "";         // บรรทัดสถานะล่าสุดจาก STM32 ให้ PC มาดึงไปเก็บลง CSV
 
 String camIp = "";                 // IP ของ ESP32-CAM ที่เรียนรู้มาจากแพ็กเก็ต UDP
 unsigned long lastCamSeen = 0;     // เวลาล่าสุดที่ได้ยินเสียงกล้อง
@@ -213,8 +215,9 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     <div class="card">
         <label>Speed: <span id="speed-val2">180</span></label><br><br>
-        <!-- ต่ำกว่า 135 มอเตอร์ไม่มีแรงพอจะหมุน ตรงกับ MIN_PWM ฝั่ง STM32 -->
-        <input type="range" min="135" max="255" value="180" class="slider" oninput="updateSpeed(this.value)">
+        <!-- ลากลงสุดถึง 0 ได้ 0 คือสั่งจอด ส่วนค่าระหว่าง 1 ถึง 134 ฝั่ง STM32 จะดันขึ้นเป็น 135
+             เพราะต่ำกว่านั้นมอเตอร์ได้แค่คราง ไม่ได้หมุนช้าลง -->
+        <input type="range" min="0" max="255" value="180" class="slider" oninput="updateSpeed(this.value)">
     </div>
 
 <script>
@@ -558,6 +561,30 @@ void sendToStm32(const String &cmd) {
   Serial.println(cmd);
 }
 
+// เก็บบรรทัดสถานะที่ STM32 ส่งกลับมา ไว้ให้ PC มาดึงไปลง CSV
+//
+// ตั้งใจไม่ส่งอะไรเข้าหน้าเว็บ ค่าพวกนี้ใช้ตอนวิเคราะห์ย้อนหลังใน Excel
+// ไม่ใช่ตอนขับ การเพิ่มของลงหน้าเว็บมีแต่จะเพิ่มโอกาสที่ปุ่มบังคับจะพัง
+//
+// อ่านทีละไบต์แบบไม่รอ เพราะ loop() ต้องไปให้บริการ WebSocket กับเว็บเซิร์ฟเวอร์ต่อ
+// readStringUntil จะบล็อกจนครบ timeout ถ้าสายหลุด ซึ่งทำให้หน้าเว็บค้าง
+void pumpStm32Serial() {
+  static char line[96];
+  static uint8_t len = 0;
+
+  while (Serial2.available() > 0) {
+    char c = Serial2.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      if (len < sizeof(line) - 1) line[len++] = c;
+      continue;
+    }
+    line[len] = '\0';
+    if (len > 2 && line[0] == 'T' && line[1] == ':') lastTelemetry = String(line + 2);
+    len = 0;
+  }
+}
+
 // ======================================================
 // WebSocket
 // ======================================================
@@ -708,6 +735,11 @@ void setup() {
   Serial.println(WiFi.softAPIP());
 
   server.on("/", []() { server.send_P(200, "text/html", index_html); });
+
+  // ให้ PC มาดึงค่าสถานะล่าสุดไปเก็บลง CSV ตอบเป็นบรรทัดเดียวคั่นด้วยจุลภาค
+  // ยังไม่เคยได้ยินอะไรจาก STM32 จะตอบบรรทัดว่าง ฝั่ง PC จะได้รู้ว่าสายยังไม่ติด
+  server.on("/telemetry", []() { server.send(200, "text/plain", lastTelemetry); });
+
   server.begin();
 
   webSocket.begin();
@@ -737,6 +769,7 @@ void loop() {
     Serial.println("ขาดการติดต่อกับกล้อง");
   }
 
+  pumpStm32Serial();  // รับค่าสถานะจาก STM32 เก็บไว้ให้ PC มาดึง
   updateScreen();  // เครื่องสถานะของจอ ตัดสินใจเองว่ารอบนี้ต้องวาดอะไรไหม
   blinkOnce();     // ทดสอบครั้งเดียวว่าจอยังฟังคำสั่งอยู่ไหม
 

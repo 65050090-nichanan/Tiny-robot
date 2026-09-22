@@ -122,6 +122,12 @@ int cmdLeft = 0;      // PWM ที่สั่งล้อซ้ายครั
 int cmdRight = 0;     // PWM ที่สั่งล้อขวาครั้งล่าสุด
 int steerOutput = 0;  // ค่าการเลี้ยวล่าสุดจาก PD ติดลบคือเลี้ยวซ้าย บวกคือเลี้ยวขวา
 int blackSeen = 0;    // จำนวนเซนเซอร์ที่ทับเส้นอยู่ตอนนี้
+
+// หุ่นกำลังทำอะไรอยู่ ณ วินาทีนี้ เขียนทับที่จุดตัดสินใจแต่ละจุด
+//
+// ตัวเลข PWM บอกว่าล้อหมุนแรงแค่ไหน แต่ไม่บอกว่าทำไม 200/80 เกิดได้ทั้งตอนเลี้ยวตามเส้น
+// และตอนกวาดหาเส้นที่หลุดไป ซึ่งคนละเรื่องกันสิ้นเชิงตอนมานั่งอ่านล็อกย้อนหลัง
+const char *action = "IDLE";
 const unsigned long TELEMETRY_MS = 200;  // ส่งค่าสถานะกลับทุกกี่มิลลิวินาที
 
 void setup() {
@@ -163,7 +169,7 @@ void loop() {
 // ส่งค่าสถานะกลับไปให้ ESP32 รีโมทเอาไปโชว์บนหน้าเว็บ
 //
 // ส่งเป็นบรรทัดเดียวคั่นด้วยจุลภาค สั้นและแยกส่วนง่าย ฝั่งรีโมทแค่ส่งต่อไม่ต้องตีความ
-//   T:<โหมด>,<ความเร็วฐาน>,<PWM ซ้าย>,<PWM ขวา>,<ค่าเลี้ยว>,<trim>,<เซนเซอร์ที่ทับเส้น>
+//   T:<โหมด>,<กำลังทำอะไร>,<ความเร็วฐาน>,<PWM ซ้าย>,<PWM ขวา>,<ค่าเลี้ยว>,<trim>,<เซนเซอร์ที่ทับเส้น>
 //
 // ตัวเลขที่ส่งคือค่าที่สั่งมอเตอร์จริง ผ่าน trim และ MIN_PWM มาแล้ว ไม่ใช่ค่าที่ตั้งใจจะสั่ง
 // ตอนจูนต้องดูตัวนี้ เพราะสิ่งที่คำนวณได้กับสิ่งที่มอเตอร์ได้รับมักไม่ใช่ตัวเดียวกัน
@@ -174,6 +180,7 @@ void sendTelemetry() {
 
   Serial2.print("T:");
   Serial2.print(isAutoMode ? 'A' : 'M');  Serial2.print(',');
+  Serial2.print(action);                  Serial2.print(',');
   Serial2.print(baseSpeed);               Serial2.print(',');
   Serial2.print(cmdLeft);                 Serial2.print(',');
   Serial2.print(cmdRight);                Serial2.print(',');
@@ -192,6 +199,7 @@ void handleQrStopSignal() {
 
   brakeMotor();  // เบรกให้หยุดทันที ไม่ปล่อยไหล
   stopUntil = millis() + QR_STOP_MS;
+  action = "QR_STOP";
   Serial.println("QR animal detected -> stop 5s");
 }
 
@@ -205,7 +213,11 @@ void handleRemoteCommand() {
 
   // ปรับความเร็วได้ตลอด ไม่ว่าจะอยู่โหมดไหนหรือกำลังหยุดรอ QR อยู่
   if (command.startsWith("speed:")) {
-    baseSpeed = constrain(command.substring(6).toInt(), MIN_SPEED, MAX_SPEED);
+    // 0 คือสั่งให้จอดนิ่ง ส่วนค่าที่มากกว่า 0 แต่ต่ำกว่าย่านที่มอเตอร์หมุนไหวจะถูกดันขึ้น
+    // ให้พอหมุน เพราะสั่ง 50 ไปก็ได้แค่เสียงคราง ไม่ได้ช้าลง
+    int v = constrain(command.substring(6).toInt(), 0, MAX_SPEED);
+    if (v > 0 && v < MIN_SPEED) v = MIN_SPEED;
+    baseSpeed = v;
     Serial.print("speed = "); Serial.println(baseSpeed);
     return;
   }
@@ -234,6 +246,7 @@ void handleRemoteCommand() {
 
   if (command.indexOf("stop") >= 0) {    // คำสั่ง "stop" ให้หยุดมอเตอร์ ใช้ได้ทุกโหมดเพื่อความปลอดภัย
     stopMotor();
+    action = "STOP";
     return;
   }
 
@@ -241,10 +254,10 @@ void handleRemoteCommand() {
   if (stopUntil != 0) return;  // กำลังหยุดรอ QR อยู่ อย่าเพิ่งขยับ
 
   int turn = baseSpeed * TURN_SPEED_RATIO / 100;  // ตอนหมุนตัวใช้ความเร็วน้อยกว่าตอนวิ่งตรงเล็กน้อย
-  if      (command.indexOf("forward") >= 0)  setSpeed(baseSpeed, baseSpeed);   // คำสั่ง "forward" ให้เดินหน้า
-  else if (command.indexOf("backward") >= 0) setSpeed(-baseSpeed, -baseSpeed); // คำสั่ง "backward" ให้ถอยหลัง
-  else if (command.indexOf("left") >= 0)     setSpeed(-turn, turn);            // คำสั่ง "left" ให้หมุนกลับตัวไปทางซ้าย
-  else if (command.indexOf("right") >= 0)    setSpeed(turn, -turn);            // คำสั่ง "right" ให้หมุนกลับตัวไปทางขวา
+  if      (command.indexOf("forward") >= 0)  { setSpeed(baseSpeed, baseSpeed);   action = "FORWARD"; }
+  else if (command.indexOf("backward") >= 0) { setSpeed(-baseSpeed, -baseSpeed); action = "BACKWARD"; }
+  else if (command.indexOf("left") >= 0)     { setSpeed(-turn, turn);            action = "TURN_LEFT"; }
+  else if (command.indexOf("right") >= 0)    { setSpeed(turn, -turn);            action = "TURN_RIGHT"; }
 }
 
 // อ่านเซนเซอร์หนึ่งตัว คืนค่า 1 = อยู่บนเส้นดำ, 0 = อยู่บนพื้นขาว
@@ -291,16 +304,18 @@ void handleLostLine() {
   }
 
   if (millis() - lostSince < LOST_CONFIRM_MS) {
+    action = "BEND";
     int output = Kp * lastError;   // เลี้ยวต่อไปทางเดิม เผื่อเส้นแค่เลยออกนอกแถวชั่วคราว
     setSpeed(baseSpeed + output, baseSpeed - output);
     return;
   }
 
-  if (SEARCH_WHEN_LOST) { searchForLine(); return; }  // ขยับตัวเองต่อจนกว่าจะเจอเส้น
+  if (SEARCH_WHEN_LOST) { action = "SEARCH"; searchForLine(); return; }  // ขยับตัวเองต่อจนกว่าจะเจอเส้น
 
   brakeMotor();
   isAutoMode = false;
   lostSince = 0;
+  action = "LOST";
   Serial.println("line lost -> stop");
 }
 
@@ -351,6 +366,8 @@ void searchForLine() {
 }
 
 void runPID() {
+  if (baseSpeed == 0) { stopMotor(); action = "STOP"; return; }  // สไลเดอร์อยู่ที่ 0 = สั่งจอด
+
   const int pins[5] = {pinL2, pinL1, pinC, pinR1, pinR2};
   int raw[5], s[5];
   int blackCount = 0;  // จำนวนเซนเซอร์ที่อยู่บนเส้นดำ
@@ -383,6 +400,7 @@ void runPID() {
     brakeMotor();
     isAutoMode = false;
     finishSince = 0;
+    action = "FINISH";
     Serial.println("finish line -> auto off");
     return;
   }
@@ -397,6 +415,8 @@ void runPID() {
   else { handleLostLine(); return; }      // ไม่มีดวงไหนเจอเส้นเลย ไปตัดสินใจที่นั่น
 
   lostSince = 0;  // เจอเส้นแล้ว ล้างตัวจับเวลาการตามหา รอบหน้าที่หลุดจะได้เริ่มนับใหม่
+
+  action = (error == 0) ? "STRAIGHT" : (error < 0 ? "TURN_LEFT" : "TURN_RIGHT");
 
   int output = (Kp * error) + (Kd * (error - lastError));  // คำนวณค่าควบคุม PD: (Kp * Error) + (Kd * ผลต่างของ Error)
   steerOutput = output;  // เก็บไว้ส่งกลับไปโชว์

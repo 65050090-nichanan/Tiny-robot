@@ -174,6 +174,8 @@ The OLED is an I2C 128×64 module at address `0x3C`. Change `OLED_ADDR` if your 
 | ESP32-CAM → STM32 | `Serial1`→`Serial3`, 9600 | a valid animal code becomes `S`, which triggers the five-second stop |
 | ESP32-CAM → ESP32 remote | UDP `1235` | the animal code, so the OLED knows what to draw, plus `P` every 2 s so the remote learns the camera IP |
 | ESP32 remote → browser | WebSocket `81` | `CAMIP:<ip>` and `ANIMAL:<name>` |
+| STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<action>,<base>,<left>,<right>,<turn>,<trim>,<on-line>` every 200 ms |
+| ESP32 remote → PC | HTTP `GET /telemetry` | the latest `T:` line, for the CSV |
 | STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<base>,<left>,<right>,<turn>,<trim>,<on-line>` every 200 ms |
 | ESP32 remote → PC | HTTP `GET /telemetry` | the latest `T:` line, for the CSV |
 
@@ -207,7 +209,7 @@ Weak-feeling wheels are handled by the constants at the top of `stm32_robot_cont
 
 If the wheels are still weak after tuning `MIN_PWM`, the cause is electrical rather than firmware: check the battery under load (motors sag a pack that looks fine at rest), confirm the motor supply does not come from the STM32 regulator, confirm the DRV8833 `nSLEEP` pin is pulled high, and check that the driver is not going into thermal shutdown.
 
-The current controller uses `Kp=45`, `Kd=35` and a default `baseSpeed=180` that the web slider overrides (clamped to 120–255). It is a PD controller, not a full PID controller.
+The current controller uses `Kp=45`, `Kd=35` and a default `baseSpeed=180` that the web slider overrides. The slider runs from 0, where 0 parks the robot even in auto mode; anything between 1 and `MIN_PWM` is raised to `MIN_PWM`, since below that the motors only buzz rather than turn slowly. It is a PD controller, not a full PID controller.
 
 `Kp` multiplies an error that maxes out at 4, so the product has to stay inside what the motors can actually do. At `Kp=80` it reached 320 against a 255 range: the outer wheel saturated and the inner one reversed, turning every bend into a pivot. At 45 the peak is about 180, inside the real range, and the robot leans into a bend instead of snapping round it. Raise it if the robot cuts corners wide; lower it if it weaves down the straights.
 
@@ -268,6 +270,41 @@ The motor columns are the values after `constrain`, the trim and `MIN_PWM` have 
 A row a second makes `Turn` plottable against time, which shows where on the course the robot fights hardest. `Turn` repeatedly at its limit means `Kp` is asking for more than the motors have.
 
 The STM32 sends these as a `T:` line up `Serial2` every 200 ms; the ESP32 remembers the latest one and serves it at `http://192.168.4.1/telemetry`, which the scanner polls. Blank columns mean the PC could not reach the robot on that row — the row is still written, so the columns stay aligned.
+
+## 📈 What gets logged
+
+`qr_scanner.py` writes a CSV to the desktop, a row a second plus a row per QR hit, ready to open in Excel and plot.
+
+| Column | |
+|:--|:--|
+| `Timestamp` | when the row was written |
+| `Event` | `START`, `RUN` (once a second) or `QR` |
+| `Animal`, `Sent_Code` | filled in on a `QR` row |
+| `Mode` | `A` for auto, `M` for manual |
+| `Action` | what the robot was doing — see below |
+| `Base_Speed` | what the speed slider is asking for |
+| `Left_PWM`, `Right_PWM` | what the motors were actually given |
+| `Turn` | the PD steering output; negative is left, positive right |
+| `Trim` | the drift correction in force |
+| `Sensors_On_Line` | how many of the five are over black |
+
+`Action` is written by the firmware at each decision point, because the numbers alone do not say why: `200/80` is a robot tracking a bend and also a robot sweeping for a line it has lost, and those read identically in a spreadsheet afterwards.
+
+| `Action` | |
+|:--|:--|
+| `STRAIGHT` | on the line, centre sensor |
+| `TURN_LEFT`, `TURN_RIGHT` | steering back toward the line |
+| `BEND` | line briefly off the sensor row, holding the last turn |
+| `SEARCH` | line gone, hunting for it |
+| `FINISH`, `LOST` | stopped, and why |
+| `QR_STOP` | the five-second stop after a code |
+| `FORWARD`, `BACKWARD`, `STOP` | driven by hand from the web page |
+
+The motor columns are the values after `constrain`, the trim and `MIN_PWM` have all had their say, so they are what reached the motors rather than what the controller asked for. Those two differ often, and the gap is usually the answer when the robot does not do what the maths says it should.
+
+`Turn` plotted against time shows where on the course the robot fights hardest. Repeatedly at its limit means `Kp` is asking for more than the motors have.
+
+The STM32 sends these as a `T:` line up `Serial2` every 200 ms; the ESP32 keeps the latest one and serves it at `http://192.168.4.1/telemetry`, which the scanner polls. None of it reaches the web page — that is for driving. Blank columns mean the PC could not reach the robot on that row; the row is still written, so the columns stay aligned.
 
 ## 🏁 Deciding it has finished
 
