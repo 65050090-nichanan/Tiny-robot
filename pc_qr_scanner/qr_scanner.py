@@ -223,9 +223,15 @@ try:
                 t = read_telemetry(session)
                 state = f' | {t[1]} speed {t[2]} turn {t[5]}' if t[0] else ' | ยังไม่ได้ยินเสียงหุ่น'
                 print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง{state}')
-            else:
+            elif CAP_URL:
                 print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
                 print(f'    เช็ก: ต่อ Wi-Fi My_Robot แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
+            else:
+                t = read_telemetry(session)
+                if t[0]:
+                    print(f'📝 เก็บข้อมูลหุ่นอยู่ | {t[1]} speed {t[2]} turn {t[5]}')
+                else:
+                    print(f'⏳ ติดต่อหุ่นที่ {TELEMETRY_URL} ไม่ได้ -- ต่อ Wi-Fi My_Robot แล้วหรือยัง')
             frames = errors = 0
             last_report = time.time()
 
