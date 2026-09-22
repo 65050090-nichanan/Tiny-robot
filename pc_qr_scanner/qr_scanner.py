@@ -43,16 +43,12 @@ def find_camera(explicit=None):
         except Exception:
             pass
 
-    print('❌ หากล้องไม่เจอ')
+    print('❌ หากล้องไม่เจอ -- จะทำงานต่อโดยไม่มีการอ่าน QR')
     print('   เช็ก 3 อย่างนี้')
     print('   1. PC ต่อ Wi-Fi ชื่อ My_Robot แล้วหรือยัง (รหัส password1234)')
     print('   2. ESP32-CAM เปิดอยู่และเกาะ Wi-Fi ได้แล้วหรือยัง ดูจาก Serial Monitor')
     print('   3. เปิด http://192.168.4.1 ดูบรรทัด CAM: ว่าขึ้น IP อะไร')
-    sys.exit(1)
-
-
-ESP32_IP = find_camera(sys.argv[1] if len(sys.argv) > 1 else None)
-CAP_URL = f'http://{ESP32_IP}/capture'
+    return None
 
 
 
@@ -137,8 +133,16 @@ def save_log(event, animal, code_char, tlm):
         print(f"❌ Logging Error: {e}")
 
 print("🚀 --- Robot Scanner & Data Logger Online ---")
-print(f"📷 กล้องที่ใช้: {CAP_URL}")
 session = requests.Session()
+
+# หากล้องทีหลังจากที่สร้างไฟล์ล็อกเสร็จแล้ว
+#
+# เดิมหาก่อน แล้วถ้าไม่เจอก็จบโปรแกรมทันที ไฟล์ CSV จึงไม่เคยถูกสร้างเลย
+# ทั้งที่การเก็บความเร็วกับการเลี้ยวไม่ได้ใช้กล้องสักนิด ค่าพวกนั้นมาจาก ESP32 รีโมท
+# ไม่มีกล้องก็แค่อ่าน QR ไม่ได้ ส่วนการเก็บล็อกยังทำงานได้เต็มที่
+ESP32_IP = find_camera(sys.argv[1] if len(sys.argv) > 1 else None)
+CAP_URL = f'http://{ESP32_IP}/capture' if ESP32_IP else None
+print(f"📷 กล้องที่ใช้: {CAP_URL}" if CAP_URL else "📷 ไม่มีกล้อง เก็บเฉพาะข้อมูลการเดินของหุ่น")
 
 frames = 0          # จำนวนภาพที่ดึงมาได้สำเร็จ
 errors = 0          # จำนวนครั้งที่ติดต่อกล้องไม่ได้
@@ -148,79 +152,89 @@ last_error_msg = ''
 
 save_log('START', 'SYSTEM', '', read_telemetry(session))
 
-while True:
-    try:
-        # เดิมตั้ง timeout ไว้ 0.5 วินาทีซึ่งสั้นเกินไปสำหรับ ESP32-CAM
-        # ถ้ากล้องตอบช้ากว่านั้นทุกรอบจะ timeout แล้ววนเปล่าโดยไม่มีอะไรขึ้นเลย
-        response = session.get(CAP_URL, timeout=3)
-        if response.status_code != 200:
-            raise RuntimeError(f'กล้องตอบ HTTP {response.status_code}')
+try:
+    while True:
+        # ไม่มีกล้องก็ข้ามส่วนอ่าน QR ไป การเก็บล็อกด้านล่างยังทำงานตามปกติ
+        if CAP_URL:
+            try:
+                # เดิมตั้ง timeout ไว้ 0.5 วินาทีซึ่งสั้นเกินไปสำหรับ ESP32-CAM
+                # ถ้ากล้องตอบช้ากว่านั้นทุกรอบจะ timeout แล้ววนเปล่าโดยไม่มีอะไรขึ้นเลย
+                response = session.get(CAP_URL, timeout=3)
+                if response.status_code != 200:
+                    raise RuntimeError(f'กล้องตอบ HTTP {response.status_code}')
 
-        img_array = np.frombuffer(response.content, dtype=np.uint8)
-        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-        if img is None:
-            raise RuntimeError('ถอดรหัสภาพจากกล้องไม่ได้')
+                img_array = np.frombuffer(response.content, dtype=np.uint8)
+                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                if img is None:
+                    raise RuntimeError('ถอดรหัสภาพจากกล้องไม่ได้')
 
-        frames += 1
+                frames += 1
 
-        for barcode in decode(img):
-            data = barcode.data.decode('utf-8').strip().upper()
-            (x, y, w, h) = barcode.rect
+                for barcode in decode(img):
+                    data = barcode.data.decode('utf-8').strip().upper()
+                    (x, y, w, h) = barcode.rect
 
-            if data not in ANIMAL_MAP:
-                # อ่าน QR ออกแล้วแต่ข้อความไม่ตรงกับรายชื่อสัตว์ บอกให้รู้จะได้แก้ถูก
-                print(f'⚠️  อ่าน QR ได้ว่า "{data}" ซึ่งไม่ใช่ชื่อสัตว์ที่รับ')
-                print(f'    ต้องเป็นคำใดคำหนึ่งนี้เท่านั้น: {", ".join(ANIMAL_MAP)}')
-                cv2.rectangle(img, (x, y), (x + w, y + h), (0, 165, 255), 2)
-                continue
+                    if data not in ANIMAL_MAP:
+                        # อ่าน QR ออกแล้วแต่ข้อความไม่ตรงกับรายชื่อสัตว์ บอกให้รู้จะได้แก้ถูก
+                        print(f'⚠️  อ่าน QR ได้ว่า "{data}" ซึ่งไม่ใช่ชื่อสัตว์ที่รับ')
+                        print(f'    ต้องเป็นคำใดคำหนึ่งนี้เท่านั้น: {", ".join(ANIMAL_MAP)}')
+                        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 165, 255), 2)
+                        continue
 
-            print(f'✅ Found: {data}')
-            code_to_send = ANIMAL_MAP[data]
-            char_sent = code_to_send.decode()
+                    print(f'✅ Found: {data}')
+                    code_to_send = ANIMAL_MAP[data]
+                    char_sent = code_to_send.decode()
 
-            send_to_robot(code_to_send)
-            print(f"📡 Sent '{char_sent}' to ESP32-CAM")
+                    send_to_robot(code_to_send)
+                    print(f"📡 Sent '{char_sent}' to ESP32-CAM")
 
-            save_log('QR', data, char_sent, read_telemetry(session))
+                    save_log('QR', data, char_sent, read_telemetry(session))
 
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(img, data, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            cv2.imshow('Robot Vision', img)
-            cv2.waitKey(1)
+                    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    cv2.putText(img, data, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    cv2.imshow('Robot Vision', img)
+                    cv2.waitKey(1)
 
-            time.sleep(6)   # รอให้หุ่นหยุดครบ 5 วินาทีก่อนสแกนรอบใหม่
+                    time.sleep(6)   # รอให้หุ่นหยุดครบ 5 วินาทีก่อนสแกนรอบใหม่
 
-        cv2.imshow('Robot Vision', img)
+                cv2.imshow('Robot Vision', img)
 
-    except Exception as e:
-        errors += 1
-        msg = f'{type(e).__name__}: {e}'
-        if msg != last_error_msg:      # พิมพ์เฉพาะตอนที่ปัญหาเปลี่ยนไป ไม่ให้ท่วมจอ
-            print(f'❌ ติดต่อกล้องไม่ได้ -- {msg}')
-            last_error_msg = msg
-        time.sleep(0.3)
-
-    # เก็บสถานะหุ่นลง CSV เป็นระยะ ไม่ใช่เฉพาะตอนเจอ QR
-    # แถวต่อเนื่องแบบนี้พล็อตกราฟใน Excel ได้ เห็นว่าหุ่นเลี้ยวแรงตรงไหนของสนาม
-    if time.time() - last_telemetry >= TELEMETRY_EVERY_S:
-        last_telemetry = time.time()
-        tlm = read_telemetry(session)
-        if tlm[0]:
-            save_log('RUN', '', '', tlm)
-
-    # รายงานสถานะทุก 5 วินาที จะได้รู้ว่าระบบเดินอยู่หรือค้าง
-    if time.time() - last_report >= 5:
-        if frames:
-            t = read_telemetry(session)
-            state = f' | {t[1]} speed {t[2]} turn {t[5]}' if t[0] else ' | ยังไม่ได้ยินเสียงหุ่น'
-            print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง{state}')
+            except Exception as e:
+                errors += 1
+                msg = f'{type(e).__name__}: {e}'
+                if msg != last_error_msg:      # พิมพ์เฉพาะตอนที่ปัญหาเปลี่ยนไป ไม่ให้ท่วมจอ
+                    print(f'❌ ติดต่อกล้องไม่ได้ -- {msg}')
+                    last_error_msg = msg
+                time.sleep(0.3)
         else:
-            print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
-            print(f'    เช็ก: ต่อ Wi-Fi My_Robot แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
-        frames = errors = 0
-        last_report = time.time()
+            time.sleep(0.2)   # ไม่มีภาพให้ประมวลผล อย่าให้ลูปหมุนกินซีพียูเปล่า
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        # เก็บสถานะหุ่นลง CSV เป็นระยะ ไม่ใช่เฉพาะตอนเจอ QR
+        # แถวต่อเนื่องแบบนี้พล็อตกราฟใน Excel ได้ เห็นว่าหุ่นเลี้ยวแรงตรงไหนของสนาม
+        if time.time() - last_telemetry >= TELEMETRY_EVERY_S:
+            last_telemetry = time.time()
+            tlm = read_telemetry(session)
+            if tlm[0]:
+                save_log('RUN', '', '', tlm)
+
+        # รายงานสถานะทุก 5 วินาที จะได้รู้ว่าระบบเดินอยู่หรือค้าง
+        if time.time() - last_report >= 5:
+            if frames:
+                t = read_telemetry(session)
+                state = f' | {t[1]} speed {t[2]} turn {t[5]}' if t[0] else ' | ยังไม่ได้ยินเสียงหุ่น'
+                print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง{state}')
+            else:
+                print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
+                print(f'    เช็ก: ต่อ Wi-Fi My_Robot แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
+            frames = errors = 0
+            last_report = time.time()
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+except KeyboardInterrupt:
+    pass
+
+
 
 cv2.destroyAllWindows()
+print(f"📁 บันทึกไว้ที่: {LOG_FILE}")
