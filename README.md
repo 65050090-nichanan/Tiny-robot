@@ -202,14 +202,14 @@ Weak-feeling wheels are handled by the constants at the top of `stm32_robot_cont
 
 | Constant | Default | What it does |
 |:--|:--:|:--|
-| `MIN_PWM` | `135` | Floor applied to any non-zero command, so the wheel always clears the breakaway point instead of just buzzing. Raise in steps of 10 if the robot still will not start moving; lower it if the slowest setting is too fast to steer. |
+| `MIN_PWM` | `0` | A floor under every non-zero command. At `0` there is none: what is asked for is what the motors get, and below roughly 135 they buzz without turning. Set it to `135` to have low values raised to the breakaway point instead — the robot then always pulls away, at the cost of every value from 1 to 134 behaving identically and the log reporting 50 where the motors were handed 135. |
 | `leftMotorOffset` | `25` | Corrects a robot that will not run straight because one motor is stronger. Positive takes power off the left and leans the robot left; negative takes it off the right. The **Trim** slider on the web page sets this live over `TRIM:<value>`, so it can be dialled in while the robot drives instead of one upload per guess. Range ±80. |
 
-`MIN_SPEED` follows `MIN_PWM`, and the web slider's `min` attribute is set to the same number — change all three together.
+`MIN_SPEED` follows `MIN_PWM`, so the slider and the motor floor cannot disagree.
 
 If the wheels are still weak after tuning `MIN_PWM`, the cause is electrical rather than firmware: check the battery under load (motors sag a pack that looks fine at rest), confirm the motor supply does not come from the STM32 regulator, confirm the DRV8833 `nSLEEP` pin is pulled high, and check that the driver is not going into thermal shutdown.
 
-The current controller uses `Kp=45`, `Kd=35` and a default `baseSpeed=180` that the web slider overrides. The slider starts at 0 and pushes its value to the robot the moment the page connects, so what it reads is what the robot has; 0 parks the robot even in auto mode; anything between 1 and `MIN_PWM` is raised to `MIN_PWM`, since below that the motors only buzz rather than turn slowly. It is a PD controller, not a full PID controller.
+The current controller uses `Kp=45`, `Kd=35` and a default `baseSpeed=180` that the web slider overrides. The slider starts at 0 and pushes its value to the robot the moment the page connects, so what it reads is what the robot has; 0 parks the robot even in auto mode, and every other value is passed straight through — see `MIN_PWM` for why a low one may not turn the wheels at all. It is a PD controller, not a full PID controller.
 
 `Kp` multiplies an error that maxes out at 4, so the product has to stay inside what the motors can actually do. At `Kp=80` it reached 320 against a 255 range: the outer wheel saturated and the inner one reversed, turning every bend into a pivot. At 45 the peak is about 180, inside the real range, and the robot leans into a bend instead of snapping round it. Raise it if the robot cuts corners wide; lower it if it weaves down the straights.
 
@@ -251,28 +251,6 @@ The twitching this used to cause came from starting the search at every bend, no
 
 ## 📈 What gets logged
 
-`qr_scanner.py` writes a CSV to the desktop, one row per line of the run, ready to open in Excel and plot.
-
-| Column | |
-|:--|:--|
-| `Timestamp` | when the row was written |
-| `Event` | `START`, `RUN` (once a second) or `QR` |
-| `Animal`, `Sent_Code` | filled in on a `QR` row |
-| `Mode` | `A` for auto, `M` for manual |
-| `Base_Speed` | what the speed slider is asking for |
-| `Left_PWM`, `Right_PWM` | what the motors were actually given |
-| `Turn` | the PD steering output; negative is left, positive right |
-| `Trim` | the drift correction in force |
-| `Sensors_On_Line` | how many of the five are over black |
-
-The motor columns are the values after `constrain`, the trim and `MIN_PWM` have all had their say, so they are what reached the motors rather than what the controller asked for. Those two differ often, and the gap is usually the answer when the robot does not do what the maths says it should.
-
-A row a second makes `Turn` plottable against time, which shows where on the course the robot fights hardest. `Turn` repeatedly at its limit means `Kp` is asking for more than the motors have.
-
-The STM32 sends these as a `T:` line up `Serial2` every 200 ms; the ESP32 remembers the latest one and serves it at `http://192.168.4.1/telemetry`, which the scanner polls. Blank columns mean the PC could not reach the robot on that row — the row is still written, so the columns stay aligned.
-
-## 📈 What gets logged
-
 `qr_scanner.py` writes a CSV to the desktop, a row a second plus a row per QR hit, ready to open in Excel and plot.
 
 | Column | |
@@ -300,7 +278,7 @@ The STM32 sends these as a `T:` line up `Serial2` every 200 ms; the ESP32 rememb
 | `QR_STOP` | the five-second stop after a code |
 | `FORWARD`, `BACKWARD`, `STOP` | driven by hand from the web page |
 
-The motor columns are the values after `constrain`, the trim and `MIN_PWM` have all had their say, so they are what reached the motors rather than what the controller asked for. Those two differ often, and the gap is usually the answer when the robot does not do what the maths says it should.
+The motor columns are the values after `constrain` and the trim have had their say, so they are what reached the motors rather than what the controller asked for. Those two differ often, and the gap is usually the answer when the robot does not do what the maths says it should.
 
 `Turn` plotted against time shows where on the course the robot fights hardest. Repeatedly at its limit means `Kp` is asking for more than the motors have.
 
