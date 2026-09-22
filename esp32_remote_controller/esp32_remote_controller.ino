@@ -197,7 +197,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     </div>
 
     <div class="card">
-        MODE: <span id="status-text">MANUAL</span> | SPEED: <span id="speed-val">180</span><br>
+        MODE: <span id="status-text">MANUAL</span> | SPEED: <span id="speed-val">0</span><br>
         <span id="link">CAM: -</span>
     </div>
 
@@ -214,10 +214,10 @@ const char index_html[] PROGMEM = R"rawliteral(
     </div>
 
     <div class="card">
-        <label>Speed: <span id="speed-val2">180</span></label><br><br>
+        <label>Speed: <span id="speed-val2">0</span></label><br><br>
         <!-- ลากลงสุดถึง 0 ได้ 0 คือสั่งจอด ส่วนค่าระหว่าง 1 ถึง 134 ฝั่ง STM32 จะดันขึ้นเป็น 135
              เพราะต่ำกว่านั้นมอเตอร์ได้แค่คราง ไม่ได้หมุนช้าลง -->
-        <input type="range" min="0" max="255" value="180" class="slider" oninput="updateSpeed(this.value)">
+        <input type="range" id="speed-slider" min="0" max="255" value="0" class="slider" oninput="updateSpeed(this.value)">
     </div>
 
 <script>
@@ -229,7 +229,12 @@ var badgeTimer = null;
 function initWebSocket() {
     websocket = new WebSocket('ws://' + window.location.hostname + ':81/');
     websocket.onmessage = onMessage;
-    websocket.onopen = function() { document.getElementById('link').innerText = 'CAM: ' + (camUrl ? 'ok' : '-'); };
+    websocket.onopen = function() {
+        document.getElementById('link').innerText = 'CAM: ' + (camUrl ? 'ok' : '-');
+        // บอกความเร็วที่สไลเดอร์ตั้งอยู่ให้หุ่นรู้ทันที ไม่งั้นหน้าเว็บโชว์ 0
+        // แต่หุ่นยังถือค่าตั้งต้นของตัวเองอยู่ กดเดินหน้าแล้วจะพุ่งทันทีทั้งที่สไลเดอร์อยู่ที่ศูนย์
+        updateSpeed(document.getElementById('speed-slider').value);
+    };
     // ถ้าสายหลุดให้ลองต่อใหม่เอง หน้าเว็บจะได้ไม่ตายถาวร
     websocket.onclose = function() { setTimeout(initWebSocket, 2000); };
 }

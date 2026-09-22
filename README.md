@@ -209,7 +209,7 @@ Weak-feeling wheels are handled by the constants at the top of `stm32_robot_cont
 
 If the wheels are still weak after tuning `MIN_PWM`, the cause is electrical rather than firmware: check the battery under load (motors sag a pack that looks fine at rest), confirm the motor supply does not come from the STM32 regulator, confirm the DRV8833 `nSLEEP` pin is pulled high, and check that the driver is not going into thermal shutdown.
 
-The current controller uses `Kp=45`, `Kd=35` and a default `baseSpeed=180` that the web slider overrides. The slider runs from 0, where 0 parks the robot even in auto mode; anything between 1 and `MIN_PWM` is raised to `MIN_PWM`, since below that the motors only buzz rather than turn slowly. It is a PD controller, not a full PID controller.
+The current controller uses `Kp=45`, `Kd=35` and a default `baseSpeed=180` that the web slider overrides. The slider starts at 0 and pushes its value to the robot the moment the page connects, so what it reads is what the robot has; 0 parks the robot even in auto mode; anything between 1 and `MIN_PWM` is raised to `MIN_PWM`, since below that the motors only buzz rather than turn slowly. It is a PD controller, not a full PID controller.
 
 `Kp` multiplies an error that maxes out at 4, so the product has to stay inside what the motors can actually do. At `Kp=80` it reached 320 against a 255 range: the outer wheel saturated and the inner one reversed, turning every bend into a pivot. At 45 the peak is about 180, inside the real range, and the robot leans into a bend instead of snapping round it. Raise it if the robot cuts corners wide; lower it if it weaves down the straights.
 
