@@ -80,7 +80,8 @@ def find_desktop():
 # หัวตารางของ CSV หนึ่งคอลัมน์ต่อหนึ่งค่า เปิดใน Excel แล้วลากคอลัมน์ไปพล็อตกราฟได้เลย
 # ถ้ายุบหลายค่าไว้ช่องเดียวจะต้องมานั่งแยกข้อความทีหลัง
 HEADER = ['Timestamp', 'Event', 'Animal', 'Sent_Code',
-          'Mode', 'Action', 'Base_Speed', 'Left_PWM', 'Right_PWM', 'Turn', 'Trim', 'Sensors_On_Line']
+          'Mode', 'Action', 'Base_Speed', 'Left_PWM', 'Right_PWM',
+          'Turn', 'Error', 'Kp', 'Kd', 'Trim', 'Sensors_On_Line']
 
 
 def open_log():
@@ -123,14 +124,15 @@ def send_to_robot(code):
         sock.sendto(code, (ESP32_IP, UDP_PORT))
     except: pass
 
-TELEMETRY_FIELDS = 8   # โหมด, กำลังทำอะไร, ความเร็วฐาน, PWM ซ้าย, PWM ขวา, ค่าเลี้ยว, trim, เซนเซอร์ที่ทับเส้น
+# โหมด, กำลังทำอะไร, ความเร็วฐาน, PWM ซ้าย, PWM ขวา, ค่าเลี้ยว, error, Kp, Kd, trim, เซนเซอร์ที่ทับเส้น
+TELEMETRY_FIELDS = 11
 _telemetry_problem = ''  # ปัญหาล่าสุดที่บอกไปแล้ว ไว้กันพิมพ์ซ้ำทุกวินาที
 
 
 def read_telemetry(session):
     """ดึงสถานะล่าสุดของหุ่นจาก ESP32 รีโมท
 
-    ตอบกลับเป็นบรรทัดเดียว เช่น  A,TURN_LEFT,180,60,255,-180,25,1
+    ตอบกลับเป็นบรรทัดเดียว เช่น  A,TURN_LEFT,180,60,255,-180,-4,45.0,35.0,25,1
 
     คืนลิสต์ความยาวคงที่เสมอ ถ้าดึงไม่ได้จะเป็นช่องว่าง แถวใน CSV จะได้เรียงตรงกันทุกแถว
     ต่อให้บางจังหวะติดต่อหุ่นไม่ได้ ซึ่งจำเป็นตอนเอาไปเปิดใน Excel

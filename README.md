@@ -174,7 +174,7 @@ The OLED is an I2C 128×64 module at address `0x3C`. Change `OLED_ADDR` if your 
 | ESP32-CAM → STM32 | `Serial1`→`Serial3`, 9600 | a valid animal code becomes `S`, which triggers the five-second stop |
 | ESP32-CAM → ESP32 remote | UDP `1235` | the animal code, so the OLED knows what to draw, plus `P` every 2 s so the remote learns the camera IP |
 | ESP32 remote → browser | WebSocket `81` | `CAMIP:<ip>` and `ANIMAL:<name>` |
-| STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<action>,<base>,<left>,<right>,<turn>,<trim>,<on-line>` every 200 ms |
+| STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<action>,<base>,<left>,<right>,<turn>,<error>,<kp>,<kd>,<trim>,<on-line>` every 200 ms |
 | ESP32 remote → PC | HTTP `GET /telemetry` | the latest `T:` line, for the CSV |
 | STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<base>,<left>,<right>,<turn>,<trim>,<on-line>` every 200 ms |
 | ESP32 remote → PC | HTTP `GET /telemetry` | the latest `T:` line, for the CSV |
@@ -263,6 +263,8 @@ The twitching this used to cause came from starting the search at every bend, no
 | `Base_Speed` | what the speed slider is asking for |
 | `Left_PWM`, `Right_PWM` | what the motors were actually given |
 | `Turn` | the PD steering output; negative is left, positive right |
+| `Error` | how far off the line the robot is, −4 to 4 — the raw input `Turn` is computed from |
+| `Kp`, `Kd` | the gains in force for that row |
 | `Trim` | the drift correction in force |
 | `Sensors_On_Line` | how many of the five are over black |
 
@@ -281,6 +283,8 @@ The twitching this used to cause came from starting the search at every bend, no
 The motor columns are the values after `constrain` and the trim have had their say, so they are what reached the motors rather than what the controller asked for. Those two differ often, and the gap is usually the answer when the robot does not do what the maths says it should.
 
 `Turn` plotted against time shows where on the course the robot fights hardest. Repeatedly at its limit means `Kp` is asking for more than the motors have.
+
+`Kp` and `Kd` are constants, and logged anyway so a file explains itself: open last week's run and the tuning it was made with is in the rows, not in somebody's memory. With `Error` beside them the arithmetic is checkable — `Turn` should equal `Kp × Error + Kd × (change in Error)` — which is how you tell a steering problem from a sensor one.
 
 The STM32 sends these as a `T:` line up `Serial2` every 200 ms; the ESP32 keeps the latest one and serves it at `http://192.168.4.1/telemetry`, which the scanner polls. None of it reaches the web page — that is for driving. Blank columns mean the PC could not reach the robot on that row; the row is still written, so the columns stay aligned.
 
