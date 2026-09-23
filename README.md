@@ -174,7 +174,7 @@ The OLED is an I2C 128×64 module at address `0x3C`. Change `OLED_ADDR` if your 
 | ESP32-CAM → STM32 | `Serial1`→`Serial3`, 9600 | a valid animal code becomes `S`, which triggers the five-second stop |
 | ESP32-CAM → ESP32 remote | UDP `1235` | the animal code, so the OLED knows what to draw, plus `P` every 2 s so the remote learns the camera IP |
 | ESP32 remote → browser | WebSocket `81` | `CAMIP:<ip>` and `ANIMAL:<name>` |
-| STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<action>,<base>,<left>,<right>,<turn>,<error>,<kp>,<kd>,<trim>,<on-line>` every 200 ms |
+| STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<action>,<base>,<left>,<right>,<turn>,<error>,<kp>,<kd>,<trim>,<5 sensor bits>,<on-line>` every 200 ms |
 | ESP32 remote → PC | HTTP `GET /telemetry` | the latest `T:` line, for the CSV |
 | STM32 → ESP32 remote | `Serial2`, 115200 | `T:<mode>,<base>,<left>,<right>,<turn>,<trim>,<on-line>` every 200 ms |
 | ESP32 remote → PC | HTTP `GET /telemetry` | the latest `T:` line, for the CSV |
@@ -266,6 +266,7 @@ The twitching this used to cause came from starting the search at every bend, no
 | `Error` | how far off the line the robot is, −4 to 4 — the raw input `Turn` is computed from |
 | `Kp`, `Kd` | the gains in force for that row |
 | `Trim` | the drift correction in force |
+| `S_L2` … `S_R2` | the five sensors, left to right; `1` means that one is over the line |
 | `Sensors_On_Line` | how many of the five are over black |
 
 `Action` is written by the firmware at each decision point, because the numbers alone do not say why: `200/80` is a robot tracking a bend and also a robot sweeping for a line it has lost, and those read identically in a spreadsheet afterwards.
@@ -283,6 +284,8 @@ The twitching this used to cause came from starting the search at every bend, no
 The motor columns are the values after `constrain` and the trim have had their say, so they are what reached the motors rather than what the controller asked for. Those two differ often, and the gap is usually the answer when the robot does not do what the maths says it should.
 
 `Turn` plotted against time shows where on the course the robot fights hardest. Repeatedly at its limit means `Kp` is asking for more than the motors have.
+
+The sensors get a column each rather than one `00100` field, because Excel reads that as a number and drops the leading zeros. Split out, they say where on the line the robot actually was at every row — the count alone cannot tell the leftmost sensor from the middle one — and a sensor that reads `0` for a whole run has never seen the line at all, which is worth knowing before blaming the tuning. They are read fresh as the row is sent, so they are right in manual mode too, where the PD loop is not running.
 
 `Kp` and `Kd` are constants, and logged anyway so a file explains itself: open last week's run and the tuning it was made with is in the rows, not in somebody's memory. With `Error` beside them the arithmetic is checkable — `Turn` should equal `Kp × Error + Kd × (change in Error)` — which is how you tell a steering problem from a sensor one.
 
