@@ -231,32 +231,9 @@ void handleQrStopSignal() {
 
 // อ่านและตีความคำสั่งจาก ESP32 รีโมท
 void handleRemoteCommand() {
-  // อ่านทีละไบต์แบบไม่รอ
-  //
-  // เดิมใช้ readStringUntil ซึ่งนั่งรอจนกว่าจะเจอการขึ้นบรรทัดใหม่ หรือจนครบเวลา timeout 1 วินาที
-  // ขอแค่มีไบต์เดียวโผล่มาบนสายโดยไม่มีบรรทัดใหม่ตามมา หุ่นก็หยุดคิดไปเต็มวินาที
-  // ระหว่างนั้นล้อค้างอยู่ที่คำสั่งเดิมและปุ่มที่กดไปไม่มีผล นี่คืออาการบังคับแล้วหน่วง
-  //
-  // แบบใหม่เก็บตัวอักษรใส่บัฟเฟอร์แล้วคืนค่าทันที คำสั่งจะทำงานในรอบที่ไบต์สุดท้ายมาถึงพอดี
-  static char buf[48];
-  static uint8_t len = 0;
+  if (Serial2.available() <= 0) return;
 
-  bool complete = false;
-  while (Serial2.available() > 0) {
-    char c = Serial2.read();
-    if (c == '\r') continue;
-    if (c != '\n') {
-      if (len < sizeof(buf) - 1) buf[len++] = c;
-      continue;
-    }
-    buf[len] = '\0';
-    complete = true;
-    break;    // ครบหนึ่งคำสั่งแล้ว ที่เหลือในบัฟเฟอร์ค่อยอ่านรอบหน้า
-  }
-  if (!complete) return;
-
-  String command = String(buf);
-  len = 0;
+  String command = Serial2.readStringUntil('\n');  // อ่านข้อความจนกระทั่งเจอการขึ้นบรรทัดใหม่
   command.trim(); command.toLowerCase();  // ตัดช่องว่างหน้า-หลัง และแปลงข้อความให้เป็นตัวพิมพ์เล็กทั้งหมด
   if (command.length() == 0) return;
 
