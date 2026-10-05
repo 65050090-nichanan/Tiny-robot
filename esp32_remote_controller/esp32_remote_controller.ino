@@ -817,8 +817,10 @@ void loop() {
   static unsigned long lastBeat = 0;
   if (millis() - lastBeat > 5000) {
     lastBeat = millis();
-    Serial.printf("ยังทำงานอยู่ %lus | hasOled=%d isMoving=%d animal=%d cam=%s\n",
-                  millis() / 1000, hasOled, isMoving, currentAnimal,
-                  camIp.length() ? camIp.c_str() : "-");
+    Serial.printf("ยังทำงานอยู่ %lus | hasOled=%d isMoving=%d cam=%s | รอบช้าสุด %lums | ลูกข่าย %d\n",
+                  millis() / 1000, hasOled, isMoving,
+                  camIp.length() ? camIp.c_str() : "-",
+                  worstLoop, WiFi.softAPgetStationNum());
+    worstLoop = 0;   // เริ่มจับใหม่ทุกรอบรายงาน จะได้เห็นว่าช่วงไหนแย่
   }
 }
