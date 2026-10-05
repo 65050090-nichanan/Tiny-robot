@@ -2,7 +2,7 @@
 // ESP32-CAM: กล้องของหุ่น + สะพานส่งสัญญาณหยุดจาก QR
 //
 // หน้าที่ของบอร์ดนี้
-//   1. เกาะ Wi-Fi ชื่อ My_Robot ที่ ESP32 รีโมทปล่อยออกมา (เมื่อก่อนเกาะเราเตอร์บ้าน คนละวงกับรีโมท)
+//   1. เกาะ Wi-Fi ชื่อ My_Robot2 ที่ ESP32 รีโมทปล่อยออกมา (เมื่อก่อนเกาะเราเตอร์บ้าน คนละวงกับรีโมท)
 //   2. เปิดเว็บกล้อง: ภาพนิ่งที่ http://<ip>/capture และภาพสดที่ http://<ip>:81/stream
 //   3. รับรหัสสัตว์จาก PC ทาง UDP พอร์ต 1234 แล้วส่ง 'S' ให้ STM32 หยุด
 //   4. ส่งรหัสสัตว์ตัวเดียวกันต่อไปให้ ESP32 รีโมท เพื่อวาดรูปสัตว์ขึ้นจอ OLED
@@ -19,7 +19,7 @@
 #include "camera_pins.h"
 
 // ---------- ค่าคงที่ตั้งค่าได้ ----------
-const char *ssid = "My_Robot";           // ต้องตรงกับ AP_SSID ใน esp32_remote_controller.ino
+const char *ssid = "My_Robot2";           // ต้องตรงกับ AP_SSID ใน esp32_remote_controller.ino
 const char *password = "password1234";   // ต้องตรงกับ AP_PASSWORD ใน esp32_remote_controller.ino
 
 const unsigned int LOCAL_UDP_PORT = 1234;   // พอร์ตที่รอรับรหัสสัตว์จาก PC

@@ -103,7 +103,7 @@ python -m pip install opencv-python numpy pyzbar requests
 1. Upload `stm32_robot_controller/` to the STM32.
 2. Upload `esp32_remote_controller/` to the ESP32.
 3. Upload the complete `esp32_camera_server/` folder to the AI Thinker ESP32-CAM. It joins the robot's own Wi-Fi automatically.
-4. Connect the phone to Wi-Fi **`My_Robot`** / **`password1234`**, then open **`http://192.168.4.1`**. The camera image appears once the ESP32-CAM has joined.
+4. Connect the phone to Wi-Fi **`My_Robot2`** / **`password1234`**, then open **`http://192.168.4.1`**. The camera image appears once the ESP32-CAM has joined.
 5. Connect the PC to the same Wi-Fi, then run:
 
 ```bash

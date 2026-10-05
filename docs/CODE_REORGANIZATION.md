@@ -20,7 +20,7 @@ The camera support files are kept with the camera sketch: `camera_web_server.cpp
 
 ## Protocol
 
-All three boards now share one network: the ESP32 remote is the access point `My_Robot` and the ESP32-CAM joins it as a client, so the remote web page can embed the camera stream.
+All three boards now share one network: the ESP32 remote is the access point `My_Robot2` and the ESP32-CAM joins it as a client, so the remote web page can embed the camera stream.
 
 The PC sends `D/C/B/L/T` to ESP32-CAM UDP port `1234`. ESP32-CAM converts a valid code to `S` and sends it to STM32 through Serial1 at 9600 baud, and forwards the original animal code to the remote on UDP port `1235`. STM32 receives `S` on Serial3 and stops for five seconds. The remote draws the matching bitmap on the OLED and pushes `ANIMAL:<name>` to the browser. The camera also pings UDP `1235` every two seconds so the remote learns its IP and can publish `CAMIP:<ip>`. The ESP32 remote sends newline-terminated motion, mode, and speed commands through Serial2 at 115200 baud.
 

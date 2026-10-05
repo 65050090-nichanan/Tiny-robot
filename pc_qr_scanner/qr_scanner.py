@@ -10,8 +10,8 @@ import os
 from datetime import datetime
 
 
-# ESP32-CAM เกาะ Wi-Fi ชื่อ My_Robot ที่ ESP32 รีโมทปล่อยออกมา จึงได้ IP ในวง 192.168.4.x
-# เครื่อง PC ต้องต่อ Wi-Fi My_Robot ด้วย ถึงจะคุยกับกล้องได้
+# ESP32-CAM เกาะ Wi-Fi ชื่อ My_Robot2 ที่ ESP32 รีโมทปล่อยออกมา จึงได้ IP ในวง 192.168.4.x
+# เครื่อง PC ต้องต่อ Wi-Fi My_Robot2 ด้วย ถึงจะคุยกับกล้องได้
 #
 # IP ของกล้องเปลี่ยนได้ทุกครั้งที่เปิดเครื่อง ขึ้นกับว่าใครมาเกาะ Wi-Fi ก่อน
 # สคริปต์จึงไล่หาเองว่ากล้องอยู่ IP ไหน แทนที่จะให้คนมานั่งแก้ตัวเลขทุกครั้ง
@@ -45,7 +45,7 @@ def find_camera(explicit=None):
 
     print('❌ หากล้องไม่เจอ -- จะทำงานต่อโดยไม่มีการอ่าน QR')
     print('   เช็ก 3 อย่างนี้')
-    print('   1. PC ต่อ Wi-Fi ชื่อ My_Robot แล้วหรือยัง (รหัส password1234)')
+    print('   1. PC ต่อ Wi-Fi ชื่อ My_Robot2 แล้วหรือยัง (รหัส password1234)')
     print('   2. ESP32-CAM เปิดอยู่และเกาะ Wi-Fi ได้แล้วหรือยัง ดูจาก Serial Monitor')
     print('   3. เปิด http://192.168.4.1 ดูบรรทัด CAM: ว่าขึ้น IP อะไร')
     return None
@@ -158,7 +158,7 @@ def read_telemetry(session):
             why = f'ESP32 ตอบมาไม่ตรงรูปแบบ: {body[:60]}'
     except Exception as e:
         why = (f'ติดต่อ {TELEMETRY_URL} ไม่ได้ ({type(e).__name__}) -- '
-               'PC ต่อ Wi-Fi ชื่อ My_Robot แล้วหรือยัง')
+               'PC ต่อ Wi-Fi ชื่อ My_Robot2 แล้วหรือยัง')
 
     # บอกสาเหตุครั้งเดียวต่อหนึ่งปัญหา ไม่ใช่ทุกวินาทีจนท่วมจอ
     if why != _telemetry_problem:
@@ -282,13 +282,13 @@ try:
                 print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง{state}')
             elif CAP_URL:
                 print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
-                print(f'    เช็ก: ต่อ Wi-Fi My_Robot แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
+                print(f'    เช็ก: ต่อ Wi-Fi My_Robot2 แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
             else:
                 t = read_telemetry(session)
                 if t[0]:
                     print(f'📝 เก็บข้อมูลหุ่นอยู่ | {t[1]} speed {t[2]} turn {t[5]}')
                 else:
-                    print(f'⏳ ติดต่อหุ่นที่ {TELEMETRY_URL} ไม่ได้ -- ต่อ Wi-Fi My_Robot แล้วหรือยัง')
+                    print(f'⏳ ติดต่อหุ่นที่ {TELEMETRY_URL} ไม่ได้ -- ต่อ Wi-Fi My_Robot2 แล้วหรือยัง')
             frames = errors = 0
             last_report = time.time()
 
