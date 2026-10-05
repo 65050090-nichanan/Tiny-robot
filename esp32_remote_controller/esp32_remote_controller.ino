@@ -790,6 +790,19 @@ void setup() {
 }
 
 void loop() {
+  // จับเวลาว่ารอบนี้ใช้ไปเท่าไหร่
+  //
+  // ทุกมิลลิวินาทีที่ค้างอยู่ในรอบนี้คือเวลาที่ไม่มีใครรับคำสั่งจากหน้าเว็บ และไม่มีใครดูแล Wi-Fi
+  // รอบปกติจบใน 1-2 ms ถ้าค่าสูงสุดขึ้นไปถึงหลักร้อย แปลว่ามีอะไรบล็อกอยู่จริง
+  // ซึ่งตอบได้ทั้งอาการบังคับหน่วงและลูกข่ายหลุด โดยไม่ต้องเดาว่าเป็นเพราะอะไร
+  static unsigned long loopStart = 0;
+  static unsigned long worstLoop = 0;
+  if (loopStart) {
+    unsigned long took = millis() - loopStart;
+    if (took > worstLoop) worstLoop = took;
+  }
+  loopStart = millis();
+
   webSocket.loop();
   server.handleClient();
   handleUdp();
