@@ -449,9 +449,14 @@ void oledResync() {
 //   ราว 150 ms ไม่ครบ 8  = บัสหน่วงจนงบหมด เฟรมถูกตัดทิ้งทุกใบ จอจึงไม่เคยเปลี่ยน
 //
 // พิมพ์ 10 เฟรมแรกให้หมด หลังจากนั้นพิมพ์อย่างมากวินาทีละครั้ง กันล้น Serial
+unsigned long lastFrameMs = 0;    // เฟรมล่าสุดใช้เวลาเท่าไหร่
+uint8_t lastFramePages = 0;       // เฟรมล่าสุดส่งได้กี่หน้าจาก 8
+
 void reportFrame(unsigned long ms, uint8_t pages) {
   static uint16_t count = 0;
   static unsigned long lastPrint = 0;
+  lastFrameMs = ms;
+  lastFramePages = pages;
   count++;
   if (count > 10 && millis() - lastPrint < 1000) return;
   lastPrint = millis();
@@ -823,9 +828,12 @@ void loop() {
   static unsigned long lastBeat = 0;
   if (millis() - lastBeat > 5000) {
     lastBeat = millis();
-    Serial.printf("ยังทำงานอยู่ %lus | hasOled=%d isMoving=%d cam=%s | รอบช้าสุด %lums | ลูกข่าย %d\n",
-                  millis() / 1000, hasOled, isMoving,
+    // ไม่พิมพ์ hasOled แล้ว เพราะ initDisplay คืน true เสมอ ค่านั้นจึงไม่เคยบอกอะไรเลย
+    // เฟรมล่าสุดส่งได้กี่หน้าคือตัวที่บอกได้จริงว่าข้อมูลภาพออกจากบอร์ดครบหรือไม่
+    Serial.printf("ยังทำงานอยู่ %lus | isMoving=%d cam=%s | เฟรมล่าสุด %u/8 ใน %lums | รอบช้าสุด %lums | ลูกข่าย %d\n",
+                  millis() / 1000, isMoving,
                   camIp.length() ? camIp.c_str() : "-",
+                  lastFramePages, lastFrameMs,
                   worstLoop, WiFi.softAPgetStationNum());
     worstLoop = 0;   // เริ่มจับใหม่ทุกรอบรายงาน จะได้เห็นว่าช่วงไหนแย่
   }
