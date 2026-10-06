@@ -1,9 +1,10 @@
 import cv2
 import numpy as np
-from pyzbar.pyzbar import decode
+from pyzbar.pyzbar import decode, ZBarSymbol
 import requests
 import socket
 import sys
+import threading
 import time
 import csv
 import os
@@ -50,6 +51,178 @@ def find_camera(explicit=None):
     print('   3. เปิด http://192.168.4.1 ดูบรรทัด CAM: ว่าขึ้น IP อะไร')
     return None
 
+
+
+class CameraFeed:
+    """รับภาพจากกล้องในเธรดแยก แล้วเก็บไว้แค่เฟรมล่าสุดเฟรมเดียว
+
+    ของเดิมยิง GET /capture ทีละรูปอยู่ในลูปหลัก กว่าจะได้รูปหนึ่งต้องรอ
+    ขอรูป -> กล้องถ่าย -> ส่งข้าม Wi-Fi -> ถอด JPEG -> ไล่หา QR เรียงต่อกันเป็นทอดๆ
+    ทุกขั้นหยุดรอขั้นก่อนหน้าจนจบ ภาพที่ได้เลยมาเป็นช่วงๆ ราว 2-3 เฟรมต่อวินาที
+
+    ที่นี่ใช้ช่อง :81/stream ซึ่งกล้องส่งรูปไหลมาเองไม่ต้องขอทีละรูป
+    เธรดนี้ทำหน้าที่รับอย่างเดียว ลูปหลักหยิบเฟรมล่าสุดไปอ่าน QR
+    เฟรมที่หยิบไม่ทันถูกทิ้งทันที ซึ่งเป็นสิ่งที่ต้องการ
+    เพราะภาพเก่าคือตำแหน่งที่หุ่นวิ่งเลยมาแล้ว ไม่มีประโยชน์จะไปอ่าน QR จากมัน
+    """
+
+    def __init__(self, ip):
+        self.stream_url = f'http://{ip}:81/stream'
+        self.capture_url = f'http://{ip}/capture'
+        self.use_stream = True
+        self.frames = 0          # จำนวนภาพที่รับมาได้ นับตั้งแต่รายงานรอบที่แล้ว
+        self.errors = 0
+        self.last_error = ''
+        self._frame = None
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _publish(self, jpg):
+        img = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return          # เฟรมขาดกลางทาง รอเฟรมหน้า ไม่ต้องรายงานเป็นข้อผิดพลาด
+        with self._lock:
+            self._frame = img
+
+    def _pump_stream(self):
+        """เกาะช่องภาพสดไว้ ตัดรูปออกมาทีละใบ คืน True ถ้าได้ภาพมาอย่างน้อยหนึ่งใบ"""
+        got = False
+        # timeout เป็นคู่: 4 วินาทีสำหรับต่อให้ติด, 8 วินาทีสำหรับรอข้อมูลก้อนถัดไป
+        with requests.get(self.stream_url, stream=True, timeout=(4, 8)) as r:
+            r.raise_for_status()
+            buf = bytearray()
+            for chunk in r.iter_content(chunk_size=8192):
+                if self._stop.is_set():
+                    return got
+                buf += chunk
+
+                # ดึงรูปที่ครบใบออกให้หมดก่อนไปรับก้อนถัดไป
+                #
+                # ต้องวนจนหมด ไม่ใช่ใบเดียวต่อหนึ่งก้อน
+                # เพราะตอนลูปหลักไปรอหุ่นหยุด 6 วินาที ภาพจะกองค้างอยู่ในสายเป็นสิบใบ
+                # ถ้าหยิบออกทีละใบต่อหนึ่งก้อน จะไล่ตามของเก่าไปเรื่อยๆ ไม่ทันปัจจุบันสักที
+                #
+                # ไม่ต้องแกะหัว multipart ให้ยุ่ง JPEG ทุกใบขึ้นต้นด้วย FFD8 ลงท้ายด้วย FFD9
+                newest = None
+                while True:
+                    start = buf.find(b'\xff\xd8')
+                    if start == -1:
+                        break
+                    end = buf.find(b'\xff\xd9', start + 2)
+                    if end == -1:
+                        break
+                    newest = bytes(buf[start:end + 2])
+                    del buf[:end + 2]
+                    self.frames += 1
+
+                if newest is not None:
+                    # ได้มาหลายใบก็ถอดเฉพาะใบล่าสุด ใบก่อนหน้าหมดอายุไปแล้วตั้งแต่ยังไม่ได้ดู
+                    # การถอด JPEG แพงกว่าการหาหัวรูปมาก จึงไม่ถอดของที่รู้อยู่แล้วว่าจะทิ้ง
+                    self._publish(newest)
+                    got = True
+                elif len(buf) > 1_000_000:
+                    del buf[:]   # ไม่เจอหัวรูปเลยสักที แปลว่าหลงจังหวะ ล้างทิ้งแล้วตั้งต้นใหม่
+        return got
+
+    def _poll_capture(self):
+        """ทางสำรอง ขอทีละรูปแบบเดิม ใช้เมื่อช่องภาพสดเปิดไม่ขึ้น"""
+        r = requests.get(self.capture_url, timeout=3)
+        r.raise_for_status()
+        self._publish(r.content)
+        self.frames += 1
+
+    def _run(self):
+        fails = 0
+        while not self._stop.is_set():
+            try:
+                if self.use_stream:
+                    if self._pump_stream():
+                        fails = 0
+                    else:
+                        fails += 1
+                else:
+                    self._poll_capture()
+            except Exception as e:
+                fails += 1
+                self.errors += 1
+                self.last_error = f'{type(e).__name__}: {e}'
+                time.sleep(0.3)
+
+            # ลองสามครั้งแล้วยังไม่ได้ภาพสักใบ ก็ถอยไปวิธีเดิมแทนที่จะวนลองไปเรื่อยๆ
+            if self.use_stream and fails >= 3:
+                self.use_stream = False
+                print('⚠️  เปิดช่องภาพสดไม่ได้ ถอยไปขอทีละรูปที่ /capture แทน (ภาพจะกระตุกกว่า)')
+                if self.last_error:
+                    print(f'    เหตุผล: {self.last_error}')
+
+    def latest(self):
+        """คืนเฟรมที่ยังไม่เคยถูกหยิบ ถ้าไม่มีของใหม่คืน None
+
+        ที่ต้องเคลียร์ทิ้งหลังหยิบ เพราะไม่อยากให้ลูปหลักเอารูปเดิมมาไล่หา QR ซ้ำ
+        ซึ่งเปลืองซีพียูฟรีๆ แล้วก็ได้คำตอบเดิมทุกครั้ง
+        """
+        with self._lock:
+            frame, self._frame = self._frame, None
+        return frame
+
+    def stop(self):
+        self._stop.set()
+
+
+# บอก zbar ให้มองหาเฉพาะ QR
+#
+# ค่าปริยายคือไล่ถอดรหัสทุกชนิดที่รู้จัก ทั้ง PDF417, Code128, EAN, DataBar
+# ซึ่งไม่มีทางโผล่มาในสนามนี้สักอย่าง แต่กินเวลาถอดรหัสทุกเฟรมและทุกชั้น
+# แล้วตัวถอด PDF417 ก็เป็นต้นเหตุของคำเตือน Assertion "g[0] >= 0 ..." ที่ท่วมจออยู่
+# มันเจอลายมั่วๆ จากนอยส์ของกล้องแล้วเข้าใจว่าเป็นบาร์โค้ดที่พัง
+QR_ONLY = [ZBarSymbol.QRCODE]
+
+_cv_qr = cv2.QRCodeDetector()
+
+
+def scan_for_qr(img):
+    """ไล่หา QR ในภาพหนึ่งใบ คืนลิสต์ของ (ข้อความ, กรอบ)
+
+    กล้องตัวนี้ให้ภาพเบลอและมีนอยส์ ส่งภาพดิบเข้า zbar ใบเดียวจึงมักอ่านไม่ออก
+    จึงลองเป็นชั้นๆ แล้วหยุดทันทีที่ชั้นไหนอ่านได้ เพราะชั้นหลังแพงกว่าชั้นแรกหลายเท่า
+    ส่วนใหญ่จบตั้งแต่ชั้นแรก ชั้นที่เหลือมีไว้เผื่อตอนแสงไม่เข้าข้าง
+    """
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # แต่ละชั้นเก็บตัวคูณไว้ด้วย เพราะชั้นที่ขยายภาพจะให้พิกัดกรอบใหญ่เกินจริงเท่านั้นเท่า
+    attempts = [
+        # 1. ภาพเทาดิบ เร็วสุด และพอ QR อยู่ใกล้แสงดีก็จบตั้งแต่ชั้นนี้
+        (gray, 1),
+        # 2. ปรับแสงทีละหย่อม ใช้ตอนครึ่งรูปโดนเงาตัวหุ่นบัง ซึ่งการตัดขาวดำทั้งภาพเอาไม่อยู่
+        (cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                               cv2.THRESH_BINARY, 31, 5), 1),
+        # 3. ขยายสองเท่า ใช้ตอน QR อยู่ไกลจนช่องเล็กกว่าที่ zbar จะแยกออก
+        (cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC), 2),
+    ]
+
+    for candidate, scale in attempts:
+        found = decode(candidate, symbols=QR_ONLY)
+        if found:
+            out = []
+            for b in found:
+                x, y, w, h = b.rect
+                out.append((b.data.decode('utf-8', 'replace').strip().upper(),
+                            (x // scale, y // scale, w // scale, h // scale)))
+            return out
+
+    # ชั้นสุดท้าย ตัวถอดของ OpenCV คนละอัลกอริทึมกับ zbar
+    # บางมุมที่ zbar ยอมแพ้ตัวนี้อ่านได้ และกลับกันก็มี จึงคุ้มที่จะลองทั้งคู่
+    try:
+        data, points, _ = _cv_qr.detectAndDecode(gray)
+    except cv2.error:
+        return []
+    if data and points is not None:
+        pts = points.astype(int).reshape(-1, 2)
+        x, y = pts[:, 0].min(), pts[:, 1].min()
+        w, h = pts[:, 0].max() - x, pts[:, 1].max() - y
+        return [(data.strip().upper(), (x, y, w, h))]
+    return []
 
 
 def find_desktop():
@@ -198,39 +371,24 @@ session = requests.Session()
 # ทั้งที่การเก็บความเร็วกับการเลี้ยวไม่ได้ใช้กล้องสักนิด ค่าพวกนั้นมาจาก ESP32 รีโมท
 # ไม่มีกล้องก็แค่อ่าน QR ไม่ได้ ส่วนการเก็บล็อกยังทำงานได้เต็มที่
 ESP32_IP = find_camera(sys.argv[1] if len(sys.argv) > 1 else None)
-CAP_URL = f'http://{ESP32_IP}/capture' if ESP32_IP else None
-print(f"📷 กล้องที่ใช้: {CAP_URL}" if CAP_URL else "📷 ไม่มีกล้อง เก็บเฉพาะข้อมูลการเดินของหุ่น")
+camera = CameraFeed(ESP32_IP) if ESP32_IP else None
+print(f"📷 เกาะช่องภาพสดที่ {camera.stream_url}" if camera
+      else "📷 ไม่มีกล้อง เก็บเฉพาะข้อมูลการเดินของหุ่น")
 
-frames = 0          # จำนวนภาพที่ดึงมาได้สำเร็จ
-errors = 0          # จำนวนครั้งที่ติดต่อกล้องไม่ได้
 last_report = time.time()
 last_telemetry = 0.0
-last_error_msg = ''
 
 save_log('START', 'SYSTEM', '', read_telemetry(session))
 
 try:
     while True:
         # ไม่มีกล้องก็ข้ามส่วนอ่าน QR ไป การเก็บล็อกด้านล่างยังทำงานตามปกติ
-        if CAP_URL:
-            try:
-                # เดิมตั้ง timeout ไว้ 0.5 วินาทีซึ่งสั้นเกินไปสำหรับ ESP32-CAM
-                # ถ้ากล้องตอบช้ากว่านั้นทุกรอบจะ timeout แล้ววนเปล่าโดยไม่มีอะไรขึ้นเลย
-                response = session.get(CAP_URL, timeout=3)
-                if response.status_code != 200:
-                    raise RuntimeError(f'กล้องตอบ HTTP {response.status_code}')
-
-                img_array = np.frombuffer(response.content, dtype=np.uint8)
-                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                if img is None:
-                    raise RuntimeError('ถอดรหัสภาพจากกล้องไม่ได้')
-
-                frames += 1
-
-                for barcode in decode(img):
-                    data = barcode.data.decode('utf-8').strip().upper()
-                    (x, y, w, h) = barcode.rect
-
+        if camera:
+            img = camera.latest()
+            if img is None:
+                time.sleep(0.01)   # เธรดกล้องยังรับเฟรมหน้าไม่เสร็จ รอสั้นๆ ไม่ต้องหมุนเปล่า
+            else:
+                for data, (x, y, w, h) in scan_for_qr(img):
                     if data not in ANIMAL_MAP:
                         # อ่าน QR ออกแล้วแต่ข้อความไม่ตรงกับรายชื่อสัตว์ บอกให้รู้จะได้แก้ถูก
                         print(f'⚠️  อ่าน QR ได้ว่า "{data}" ซึ่งไม่ใช่ชื่อสัตว์ที่รับ')
@@ -248,21 +406,17 @@ try:
                     save_log('QR', data, char_sent, read_telemetry(session))
 
                     cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    cv2.putText(img, data, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    cv2.putText(img, data, (x, max(y - 10, 20)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                     cv2.imshow('Robot Vision', img)
                     cv2.waitKey(1)
 
-                    time.sleep(6)   # รอให้หุ่นหยุดครบ 5 วินาทีก่อนสแกนรอบใหม่
+                    # รอให้หุ่นหยุดครบ 5 วินาทีก่อนสแกนรอบใหม่
+                    # ระหว่างนี้เธรดกล้องยังรับภาพต่อ แต่ทับเฟรมเก่าทิ้งไปเรื่อยๆ
+                    # พอกลับมาจึงได้ภาพของตอนนี้ ไม่ใช่ภาพค้างจากก่อนหุ่นหยุด
+                    time.sleep(6)
 
                 cv2.imshow('Robot Vision', img)
-
-            except Exception as e:
-                errors += 1
-                msg = f'{type(e).__name__}: {e}'
-                if msg != last_error_msg:      # พิมพ์เฉพาะตอนที่ปัญหาเปลี่ยนไป ไม่ให้ท่วมจอ
-                    print(f'❌ ติดต่อกล้องไม่ได้ -- {msg}')
-                    last_error_msg = msg
-                time.sleep(0.3)
         else:
             time.sleep(0.2)   # ไม่มีภาพให้ประมวลผล อย่าให้ลูปหมุนกินซีพียูเปล่า
 
@@ -276,20 +430,28 @@ try:
 
         # รายงานสถานะทุก 5 วินาที จะได้รู้ว่าระบบเดินอยู่หรือค้าง
         if time.time() - last_report >= 5:
-            if frames:
+            elapsed = time.time() - last_report
+            if camera and camera.frames:
                 t = read_telemetry(session)
                 state = f' | {t[1]} speed {t[2]} turn {t[5]}' if t[0] else ' | ยังไม่ได้ยินเสียงหุ่น'
-                print(f'📷 ดึงภาพมาแล้ว {frames} เฟรม | ติดต่อไม่ได้ {errors} ครั้ง{state}')
-            elif CAP_URL:
-                print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
-                print(f'    เช็ก: ต่อ Wi-Fi My_Robot2 แล้วหรือยัง และเปิด {CAP_URL} ในเบราว์เซอร์ขึ้นไหม')
+                # บอกเป็นเฟรมต่อวินาที ไม่ใช่จำนวนรวม ตัวเลขนี้เทียบกับรอบก่อนได้ทันที
+                # ว่าที่ปรับไปช่วยจริงไหม ส่วนจำนวนรวมต้องมาหารเองทุกครั้ง
+                print(f'📷 {camera.frames / elapsed:.1f} เฟรมต่อวินาที | '
+                      f'ติดต่อไม่ได้ {camera.errors} ครั้ง{state}')
+            elif camera:
+                print(f'⏳ ยังไม่ได้ภาพจากกล้องเลย ({camera.errors} ครั้งที่ลองแล้วไม่สำเร็จ)')
+                print(f'    เช็ก: ต่อ Wi-Fi My_Robot2 แล้วหรือยัง '
+                      f'และเปิด {camera.capture_url} ในเบราว์เซอร์ขึ้นไหม')
+                if camera.last_error:
+                    print(f'    ล่าสุด: {camera.last_error}')
             else:
                 t = read_telemetry(session)
                 if t[0]:
                     print(f'📝 เก็บข้อมูลหุ่นอยู่ | {t[1]} speed {t[2]} turn {t[5]}')
                 else:
                     print(f'⏳ ติดต่อหุ่นที่ {TELEMETRY_URL} ไม่ได้ -- ต่อ Wi-Fi My_Robot2 แล้วหรือยัง')
-            frames = errors = 0
+            if camera:
+                camera.frames = camera.errors = 0
             last_report = time.time()
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -298,7 +460,8 @@ except KeyboardInterrupt:
     pass
 
 
-
+if camera:
+    camera.stop()
 cv2.destroyAllWindows()
 if LOG_FILE:
     print(f"📁 บันทึกไว้ที่: {LOG_FILE}")
