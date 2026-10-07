@@ -435,7 +435,7 @@ step(s, { x: M, y: 1.6, w: 5.7, n: 1, head: 'ลง STM32CubeProgrammer',
 step(s, { x: M, y: 2.95, w: 5.7, n: 2, head: 'ต่อสาย 4 เส้น',
   body: 'ตามตารางด้านขวา  จับคู่ตามชื่อที่พิมพ์บนตัว ST-Link อย่าดูตามเลขพิน เพราะของแต่ละล็อตสลับตำแหน่งกัน' });
 step(s, { x: M, y: 4.3, w: 5.7, n: 3, head: 'ตั้งค่าใน Arduino IDE',
-  body: 'Upload method เลือก STM32CubeProgrammer (SWD)  ส่วนเมนู Port ปล่อยว่างไว้ ไม่ต้องเลือกอะไรเลย' });
+  body: 'Upload method เลือก STM32CubeProgrammer (SWD)  ส่วนเมนู Port ปล่อยว่างไว้  ช่องที่เหลือทั้งหมดอยู่ในหน้าถัดไป' });
 table(s, {
   x: 6.9, y: 1.55, w: W - 6.3, colW: [2.1, 3.7],
   head: ['ST-Link', 'Blue Pill'],
@@ -455,7 +455,29 @@ callout(s, { x: M, y: 5.8, w: W, h: 0.85, tone: 'info',
   body: 'ไม่ต้องสลับ BOOT0 ไปมาอีกเลย  และไม่แย่ง COM port กับ Serial Monitor เพราะการอัปไม่ได้วิ่งผ่านพอร์ต COM' });
 s.addNotes('สองเรื่องนี้คือต้นเหตุที่ทำให้อัป STM32 ไม่ติดมาตลอดในวิธีเดิม คือลืมสลับ BOOT0 กลับ กับ Serial Monitor จองพอร์ตค้างไว้\n\nพอเปลี่ยนมาใช้ ST-Link ทั้งสองเรื่องหายไปพร้อมกัน เสียบ ST-Link ค้างไว้ได้ตลอดด้วย เพราะ PA13 PA14 ไม่ได้ถูกใช้ที่ไหนในโค้ดหุ่นเลย');
 
-// --- 10. อัปเฟิร์มแวร์ ---
+// --- 10. ตั้งค่า Arduino IDE ---
+s = pres.addSlide({ masterName: 'CONTENT', sectionTitle: 'ติดตั้ง' });
+s.addText('ตั้งค่า Arduino IDE สำหรับ STM32', { placeholder: 'title' });
+table(s, {
+  x: M, y: 1.5, w: W, colW: [3.2, 4.1, 4.8],
+  head: ['เมนูใน Tools', 'ตั้งเป็น', 'ถ้าตั้งผิดจะเจออะไร'],
+  rows: [
+    ['Board', 'Generic STM32F1 series', 'ไม่มีเมนู Upload method ให้เห็นเลยสักช่อง'],
+    ['Board part number', 'BluePill F103C8', ''],
+    ['Upload method', 'STM32CubeProgrammer (SWD)', 'อัปไม่ติด เพราะไปเรียกวิธีอื่น'],
+    ['U(S)ART support', "Enabled (generic 'Serial')", 'ไม่มี Serial เลยสักตัว ล็อกหายหมด'],
+    ['USB support', 'None', 'Serial ย้ายไปออกช่อง USB  ล็อกที่ PA9 เงียบไปเฉยๆ ไม่มี error บอก'],
+    ['Optimize, Debug, C Runtime', 'ปล่อยค่าเริ่มต้นไว้ทั้งหมด', ''],
+    ['Port', 'ปล่อยว่าง ไม่ต้องเลือก', ''],
+  ],
+  fontSize: 12.5,
+});
+callout(s, { x: M, y: 5.45, w: W, h: 1.05, tone: 'info',
+  title: 'สามแถวที่มีคำอธิบายช่องขวา คือสามช่องที่พลาดแล้วหาสาเหตุยากที่สุด',
+  body: 'ที่เหลือตั้งผิดก็ยังคอมไพล์ผ่านและใช้งานได้ ไม่ต้องกังวล\nส่วนช่อง Port ที่ว่างอยู่คือถูกต้องแล้ว เพราะ ST-Link ไม่เคยโผล่มาเป็น COM port ตั้งแต่แรก' });
+s.addNotes('แถว Board คือจุดที่พลาดกันบ่อยที่สุด ถ้าเปิดเมนู Tools แล้วไม่เห็นคำว่า Upload method เลย แปลว่ายังเลือกบอร์ดจากคอร์อื่นอยู่ ไม่ใช่คอร์ STM32 ตัวทางการ\n\nแถว USB support หลอกที่สุด เพราะถ้าเผลอเลือก CDC มันจะย้าย Serial ไปออกทางช่อง USB ของบอร์ด ล็อกที่ขา PA9 จะเงียบสนิทโดยไม่มีอะไรฟ้อง ทั้งที่โค้ดทำงานปกติทุกอย่าง\n\nBluePill F103C8 คือ 64 KB ส่วนโค้ดใช้ไปราว 25 KB ถ้าวันไหนโตเกิน ค่อยเปลี่ยนไปเลือก BluePill F103CB ซึ่งปลดล็อกเป็น 128 KB ที่ชิปมีจริงอยู่แล้ว');
+
+// --- 11. อัปเฟิร์มแวร์ ---
 s = pres.addSlide({ masterName: 'CONTENT', sectionTitle: 'ติดตั้ง' });
 s.addText('อัปเฟิร์มแวร์ทีละบอร์ด', { placeholder: 'title' });
 step(s, { x: M, y: 1.6, w: 5.7, n: 1, head: 'STM32  ผ่าน ST-Link',
