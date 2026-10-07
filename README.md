@@ -119,6 +119,21 @@ Both routes go through **STM32CubeProgrammer**, which the core calls to do the a
 
 **ST-Link is the one to use if you have the dongle.** Both of the things that make the serial route fail — a `BOOT0` left in the wrong position, and a Serial Monitor holding the port the upload wants — simply do not exist on it.
 
+**Every `Tools` menu setting for this board.** Only `Upload method` and `Port` differ between the two routes; the rest are the same either way, and three of them will stop the build or the robot if they are wrong.
+
+| `Tools` menu | Set to | Why it matters |
+|:--|:--|:--|
+| Board | `Generic STM32F1 series` | Under `STM32 MCU based boards`. If the menu has no `Upload method` entry, a different core's board is selected and nothing below will appear. |
+| Board part number | `BluePill F103C8` | 64 KB of flash; the firmware uses about 25 KB. Most clones really hold 128 KB, and `BluePill F103CB (or C8 with 128k)` unlocks it — worth switching only once the sketch outgrows 64 KB. |
+| Upload method | `STM32CubeProgrammer (SWD)` with ST-Link, `(Serial)` over USB-TTL | The one setting the two routes disagree on. |
+| U(S)ART support | `Enabled (generic 'Serial')` | `Disabled` removes `Serial` entirely and the log with it. |
+| USB support (if available) | `None` | `CDC (generic 'Serial' supersede U(S)ART)` moves `Serial` onto the USB socket, and the PA9/PA10 log goes quiet with no error to explain it. The board's USB is only power here. |
+| USB speed | ignored | Greyed out in effect while USB support is `None`. |
+| Optimize | `Smallest (-Os default)` | |
+| Debug symbols and core logs | `None` | The core's own logs are not wired anywhere on this board. |
+| C Runtime Library | `Newlib Nano (default)` | The float variants only matter for `printf("%f")`, which this firmware never calls — `Serial.print(value, 1)` formats floats itself. |
+| Port | empty for SWD; the adapter's port for Serial | An empty Port menu under SWD is correct. See the ST-Link notes below. |
+
 **A. ST-Link V2 over SWD**
 
 | ST-Link | → | Blue Pill |
