@@ -100,8 +100,62 @@ python -m pip install opencv-python numpy pyzbar requests
 
 </details>
 
+<details>
+<summary><b>2. Get the firmware onto the STM32</b></summary>
+
+<br>
+
+The two ESP32 boards upload over USB like any other Arduino board — the remote through its own socket, the camera through a USB-TTL adapter with `IO0` pulled to `GND` while the upload runs. The STM32 is the one with a choice to make.
+
+Both routes go through **STM32CubeProgrammer**, which the core calls to do the actual writing, so install it either way. It is a free download from ST and brings the ST-Link driver with it. Keep the default install path; the core looks for it there.
+
+| | **ST-Link V2 (SWD)** | **USB-TTL (serial bootloader)** |
+|:--|:--|:--|
+| Extra hardware | an ST-Link V2 dongle | a USB-TTL adapter |
+| `BOOT0` jumper | leave at `0` forever | `1` to upload, `0` to run, reset between |
+| COM port | none — the upload does not use one | one, and nothing else may be holding it |
+| `Upload method` | `STM32CubeProgrammer (SWD)` | `STM32CubeProgrammer (Serial)` |
+| Serial log during upload | stays free on its own adapter | same adapter, so close the monitor first |
+
+**ST-Link is the one to use if you have the dongle.** Both of the things that make the serial route fail — a `BOOT0` left in the wrong position, and a Serial Monitor holding the port the upload wants — simply do not exist on it.
+
+**A. ST-Link V2 over SWD**
+
+| ST-Link | → | Blue Pill |
+|:--|:--:|:--|
+| `SWDIO` | → | `DIO` (PA13) |
+| `SWCLK` | → | `DCLK` (PA14) |
+| `GND` | → | `GND` |
+| `3.3V` | → | `3V3` — only when nothing else powers the board |
+
+Match the pins by the names printed on the dongle, not by pin number: the clones do not agree on a layout.
+
+PA13 and PA14 are not on the side headers. Follow the numbering down and it jumps from `A12` to `A15` with nothing to say why — the two are brought out on the 4-pin header at the end of the board opposite the USB socket, labelled `DIO` and `DCLK` rather than by pin name, often on the underside. Nothing in this firmware uses them, so the dongle can stay plugged in permanently.
+
+Then set `Upload method` to `STM32CubeProgrammer (SWD)` and leave `Port` unselected — an ST-Link never appears as a COM port, so an empty Port menu is the expected state, not a fault. To check the dongle and the wiring before involving the IDE at all:
+
+```bash
+STM32_Programmer_CLI.exe -c port=SWD mode=UR
+```
+
+Reading back `Device ID: 0x410` means the probe, the wires and the board's power are all good, and anything that fails after that is the IDE's end.
+
+**B. USB-TTL over the serial bootloader**
+
+| Blue Pill | → | USB-TTL |
+|:--|:--:|:--|
+| `A9` (TX) | → | `RX` |
+| `A10` (RX) | → | `TX` |
+| `G` | → | `GND` |
+
+Set `BOOT0` to `1`, press reset, upload, then set it back to `0` and reset again — skipping that last step leaves the board sitting in the bootloader instead of running what you just wrote. Choose `STM32CubeProgrammer (Serial)` and the adapter's port, and close every Serial Monitor on that port first, since one open monitor is enough to fail the upload.
+
+Those same three wires carry the `Serial` log at 115200 whichever route you upload by. For reading the log alone, `A9` → `RX` and a shared ground are enough; the firmware only ever prints.
+
+</details>
+
 <details open>
-<summary><b>2. Run the system</b></summary>
+<summary><b>3. Run the system</b></summary>
 
 <br>
 
@@ -325,7 +379,9 @@ Sit the robot on the line with the middle sensor over it and read the `black` ro
 STM32 robot ready | build Sep 11 2026 16:42:03
 ```
 
-Open the serial monitor at 115200 and reset the board. If the timestamp does not match the upload that was just made, the upload did not take — on a Blue Pill the usual cause is BOOT0 left at 1, which reboots into the bootloader instead of running the program.
+Open the serial monitor at 115200 and reset the board. If the timestamp does not match the upload that was just made, the upload did not take — uploading over the serial bootloader, the usual cause is `BOOT0` left at `1`, which reboots into the bootloader instead of running the program.
+
+Over ST-Link there is a second answer available before the board even runs: the programmer prints `Download verified successfully` only after reading the flash back and comparing it against the file, so a failed write is reported as one rather than looking like a successful upload that did nothing.
 
 ## 🗂️ Repository layout
 
