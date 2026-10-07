@@ -235,6 +235,8 @@ Tiny-robot/
 | ไฟล์ | สำหรับ |
 |:--|:--|
 | [`README.md`](../README.md) | คู่มือฉบับเต็ม ทุกค่าคงที่พร้อมเหตุผลว่าทำไมถึงตั้งไว้แบบนั้น |
-| [`Tiny-Robot-Setup-Guide-TH.pptx`](Tiny-Robot-Setup-Guide-TH.pptx) | สไลด์ 20 หน้า สำหรับสอนคนที่เพิ่งมารับช่วงต่อ มีสคริปต์ผู้บรรยายในช่อง Notes |
-| [`build_deck.js`](build_deck.js) | ตัวสร้างสไลด์ข้างบน แก้ที่นี่แล้วสร้างใหม่ อย่าแก้ในไฟล์ `.pptx` ตรงๆ |
+| [`Tiny-Robot-Setup-Guide-TH.pptx`](Tiny-Robot-Setup-Guide-TH.pptx) | สไลด์ 23 หน้าภาษาไทย สำหรับสอนคนที่เพิ่งมารับช่วงต่อ มีสคริปต์ผู้บรรยายในช่อง Notes |
+| [`Tiny-Robot-Setup-Guide-EN.pptx`](Tiny-Robot-Setup-Guide-EN.pptx) | ชุดเดียวกันฉบับภาษาอังกฤษ เนื้อหาและลำดับหน้าตรงกันทุกหน้า |
+| [`deck_kit.js`](deck_kit.js) | ธีม เลย์เอาต์ และฟังก์ชันวาดที่สไลด์ทั้งสองฉบับใช้ร่วมกัน แก้ระยะห่างหรือสีที่นี่ที่เดียว |
+| [`build_deck.js`](build_deck.js) · [`build_deck_en.js`](build_deck_en.js) | เนื้อหาของแต่ละฉบับ แก้ที่นี่แล้วสร้างใหม่ อย่าแก้ในไฟล์ `.pptx` ตรงๆ |
 | [`CODE_REORGANIZATION.md`](CODE_REORGANIZATION.md) | บันทึกการจัดระเบียบโครงสร้างไฟล์ |
