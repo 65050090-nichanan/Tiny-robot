@@ -494,7 +494,45 @@ callout(s, { x: 6.9, y: 3.3, w: W - 6.3, h: 2.0, tone: 'info',
   body: 'ฝั่ง ST-Link จะขึ้นคำว่า Download verified successfully ซึ่งแปลว่าอ่านกลับมาเทียบแล้วตรงทุกไบต์\n\nอีกทางคือเปิด Serial Monitor ที่ 115200 แล้วกดรีเซ็ต ดูว่าวันเวลาคอมไพล์ตรงกับที่เพิ่งอัปไหม' });
 s.addNotes('ลำดับการอัปไม่สำคัญ แต่ที่สำคัญคือต้องเปลี่ยน Tools > Board ให้ตรงกับบอร์ดที่กำลังจะอัปทุกครั้ง\n\nลืมเปลี่ยนแล้วกดอัปคือความผิดพลาดที่เจอบ่อยที่สุด โค้ดจะถูกคอมไพล์ด้วยบอร์ดผิด ซึ่งบางทีก็อัปติดด้วยแล้วไปเพี้ยนตอนรัน\n\nถ้าแก้แค่โค้ดฝั่งกล้อง ก็อัปแค่ esp32_camera_server พอ ไม่ต้องอัปใหม่ทั้งสามตัว');
 
-// --- 10. คั่น: ใช้งาน ---
+// --- 12. อัปด้วย CubeProgrammer ตรงๆ ---
+s = pres.addSlide({ masterName: 'CONTENT', sectionTitle: 'ติดตั้ง' });
+s.addText('อัปด้วย CubeProgrammer โดยไม่ผ่าน IDE', { placeholder: 'title' });
+step(s, { x: M, y: 1.55, w: 5.7, n: 1, head: 'เอาไฟล์ออกมาจาก IDE ก่อน',
+  body: 'กด Sketch > Export Compiled Binary  เพราะ CubeProgrammer คอมไพล์ไม่เป็น ทำได้แค่เอาไฟล์ที่เสร็จแล้วยัดลงชิป' });
+s.addText('stm32_robot_controller\\build\\\nSTMicroelectronics.stm32.GenF1\\', {
+  x: M + 0.72, y: 2.85, w: 5.0, h: 0.6, fontSize: 10.5, color: THEME.colors.accent2,
+  fontFace: 'Courier New', align: 'left', valign: 'top', isTextBox: true, margin: 0, lineSpacingMultiple: 1.2,
+});
+step(s, { x: M, y: 3.6, w: 5.7, n: 2, head: 'แล้วสั่งเขียนลงชิป',
+  body: 'ต่อ ST-Link ไว้เหมือนเดิม แล้วพิมพ์คำสั่งข้างล่างนี้' });
+s.addShape(pres.shapes.ROUNDED_RECTANGLE, {
+  x: M, y: 4.45, w: 5.7, h: 1.15, rectRadius: 0.1,
+  fill: { color: C.text1 }, line: { color: C.text1, width: 1 }, objectName: 'cmd-box',
+});
+s.addText('STM32_Programmer_CLI.exe -c port=SWD\n   mode=UR -w firmware.bin 0x08000000\n   -v -rst', {
+  x: M + 0.28, y: 4.62, w: 5.14, h: 0.9, fontSize: 11, color: THEME.colors.accent1,
+  fontFace: 'Courier New', align: 'left', valign: 'top', isTextBox: true, margin: 0, lineSpacingMultiple: 1.2,
+});
+table(s, {
+  x: 6.9, y: 1.5, w: W - 6.3, colW: [2.6, 3.2],
+  head: ['ส่วนของคำสั่ง', 'หมายถึง'],
+  rows: [
+    ['-c port=SWD mode=UR', 'ต่อผ่าน ST-Link'],
+    ['-w ไฟล์ 0x08000000', 'เขียนลงที่อยู่เริ่มต้นของแฟลช'],
+    ['-v', 'อ่านกลับมาเทียบว่าตรงไหม'],
+    ['-rst', 'รีเซ็ตให้รันทันที'],
+  ],
+  fontSize: 12,
+});
+callout(s, { x: 6.9, y: 3.6, w: W - 6.3, h: 1.45, tone: 'warn',
+  title: 'เลข 0x08000000 ใส่เฉพาะไฟล์ .bin',
+  body: 'ถ้าใช้ไฟล์ .hex ไม่ต้องใส่ เพราะในไฟล์ระบุที่อยู่มาเองแล้ว เขียนแค่ -w ไฟล์.hex พอ' });
+callout(s, { x: M, y: 5.8, w: W, h: 0.85, tone: 'info',
+  title: 'ใช้ตอนไหนถึงจะคุ้ม',
+  body: 'ตอนอัปหลายบอร์ดด้วยไฟล์เดียวกัน หรือส่งไฟล์ให้คนอื่นแฟลชโดยไม่ต้องให้เขาลง Arduino IDE ทั้งชุด  ถ้าแก้โค้ดแล้วอัปรอบเดียว กดปุ่ม Upload ใน IDE เร็วกว่า' });
+s.addNotes('วิธีนี้คือวิธีเดียวกับที่ปุ่ม Upload ใน IDE ทำอยู่เบื้องหลัง แค่เราเรียกเองทีละขั้นแทน\n\nถ้าอยากกดปุ่มแทนพิมพ์ ก็เปิดโปรแกรม STM32CubeProgrammer ได้ เลือก ST-LINK มุมขวาบน กด Connect แล้วไปแท็บ Erasing & Programming ติ๊ก Verify กับ Run after programming');
+
+// --- 13. คั่น: ใช้งาน ---
 pres.addSection({ title: 'ใช้งานจริง' });
 s = pres.addSlide({ masterName: 'SECTION', sectionTitle: 'ใช้งานจริง' });
 s.addText('02', { placeholder: 'eyebrow' });

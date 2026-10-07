@@ -167,6 +167,33 @@ Set `BOOT0` to `1`, press reset, upload, then set it back to `0` and reset again
 
 Those same three wires carry the `Serial` log at 115200 whichever route you upload by. For reading the log alone, `A9` → `RX` and a shared ground are enough; the firmware only ever prints.
 
+**C. Flashing a prebuilt binary, without the IDE**
+
+Both routes above end in STM32CubeProgrammer anyway, so it can be driven directly. It cannot compile, though, so the IDE still has to produce the file: `Sketch > Export Compiled Binary` (`Ctrl+Alt+S`) writes it beside the sketch.
+
+```text
+stm32_robot_controller/build/STMicroelectronics.stm32.GenF1/
+    stm32_robot_controller.ino.bin
+    stm32_robot_controller.ino.hex
+```
+
+Then write it over SWD:
+
+```bash
+STM32_Programmer_CLI.exe -c port=SWD mode=UR -w stm32_robot_controller.ino.bin 0x08000000 -v -rst
+```
+
+| | |
+|:--|:--|
+| `-c port=SWD mode=UR` | connect through ST-Link, holding reset while it does |
+| `-w <file> 0x08000000` | write to the start of flash — the address belongs to `.bin` only, since a `.hex` carries its own and takes just `-w file.hex` |
+| `-v` | read the flash back and compare it against the file |
+| `-rst` | reset afterwards, so the new firmware runs immediately |
+
+The same thing is available as buttons in the STM32CubeProgrammer window: pick `ST-LINK`, **Connect**, then `Erasing & Programming` with `Verify` and `Run after programming` ticked.
+
+This earns its keep when the same binary goes onto several boards, or when someone else should flash a build without installing the whole toolchain to do it. For one upload after one edit, the IDE's own button is quicker — it compiles and calls the programmer in a single step.
+
 </details>
 
 <details open>
