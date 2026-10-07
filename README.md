@@ -83,7 +83,7 @@ Install `STM32 MCU based boards` from `Tools > Board > Boards Manager` and selec
 > [!IMPORTANT]
 > This core does not create `Serial2` and `Serial3` on its own. `Serial.h` declares them because the F103 has the hardware, but `Serial.cpp` only builds the objects behind `HAVE_HWSERIAL2` and `HAVE_HWSERIAL3`, so a sketch that uses them compiles and then fails to link with `undefined reference to 'Serial2'` — which reads like a mistake in the sketch and is not one.
 >
-> `stm32_robot_controller/build_opt.h` turns those two on. It has to sit in the sketch folder, and it may hold only compiler flags — the whole file is handed to gcc, so a comment line in it breaks the build.
+> The sketch therefore creates both itself, near the top, with the same two lines the core's own `Serial.cpp` uses. They must be typed `Uart`, not `HardwareSerial` — `Uart` derives from it, and only `Uart` matches what `Serial.h` declared. Do not delete them, and do not also set `ENABLE_HWSERIAL2`/`ENABLE_HWSERIAL3` through a `build_opt.h`, or the core defines them a second time and the link fails on a duplicate instead.
 
 Libraries for the ESP32 remote, from `Tools > Manage Libraries`:
 
