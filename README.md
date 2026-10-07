@@ -80,6 +80,11 @@ https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectron
 
 Install `STM32 MCU based boards` from `Tools > Board > Boards Manager` and select the exact STM32 board. Install the ESP32 board package before uploading the ESP32 sketches.
 
+> [!IMPORTANT]
+> This core does not create `Serial2` and `Serial3` on its own. `Serial.h` declares them because the F103 has the hardware, but `Serial.cpp` only builds the objects behind `HAVE_HWSERIAL2` and `HAVE_HWSERIAL3`, so a sketch that uses them compiles and then fails to link with `undefined reference to 'Serial2'` — which reads like a mistake in the sketch and is not one.
+>
+> `stm32_robot_controller/build_opt.h` turns those two on. It has to sit in the sketch folder, and it may hold only compiler flags — the whole file is handed to gcc, so a comment line in it breaks the build.
+
 Libraries for the ESP32 remote, from `Tools > Manage Libraries`:
 
 - `WebSockets` by Markus Sattler (Links2004)

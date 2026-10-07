@@ -19,7 +19,7 @@
 #include "camera_pins.h"
 
 // ---------- ค่าคงที่ตั้งค่าได้ ----------
-const char *ssid = "My_Robot2";           // ต้องตรงกับ AP_SSID ใน esp32_remote_controller.ino
+const char *ssid = "My_Robot4";           // ต้องตรงกับ AP_SSID ใน esp32_remote_controller.ino
 const char *password = "password1234";   // ต้องตรงกับ AP_PASSWORD ใน esp32_remote_controller.ino
 
 const unsigned int LOCAL_UDP_PORT = 1234;   // พอร์ตที่รอรับรหัสสัตว์จาก PC
