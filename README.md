@@ -21,7 +21,7 @@
 |---|---|
 | 🛣️ **Follow a line** | Five-sensor black-line following with a PD controller, bend-tolerant handling when the line drops out, and active braking at the finish line. |
 | 🎮 **Take orders** | Forward, backward, left, right and stop from any phone browser, with a speed slider and an Auto/Manual switch. |
-| 📷 **See** | The ESP32-CAM streams live video straight into the remote web page. |
+| 📷 **See** | The ESP32-CAM streams live video straight into the remote web page, with a button to switch the stream off when nobody is watching it. |
 | 🔍 **Read QR codes** | DOG, CAT, BIRD, LION and TIGER — decoded on the PC, sent back to the robot over Wi-Fi. |
 | 🐕 **React** | A valid code stops the robot for five seconds and paints that animal across the OLED. |
 
@@ -212,6 +212,8 @@ python pc_qr_scanner/qr_scanner.py
 ```
 
 The scanner finds the camera by itself. Pass an IP to skip the search: `python pc_qr_scanner/qr_scanner.py 192.168.4.3`
+
+The button under the camera image switches the stream off. It detaches the image rather than hiding it, because a hidden `<img>` keeps its connection open and the camera keeps encoding and sending frames for nobody; dropping the connection is what makes the camera's stream handler stop. The choice is remembered in the browser, so a page reload keeps it. Note that the PC scanner holds a stream of its own, so with the scanner running the camera keeps working — the button frees the airtime of a second viewer, which is also the one competing with the controls for the link.
 
 </details>
 

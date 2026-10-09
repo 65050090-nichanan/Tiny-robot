@@ -179,6 +179,11 @@ const char index_html[] PROGMEM = R"rawliteral(
                         background: rgba(15,157,88,0.92); color: #fff; font-size: 20px; font-weight: bold;
                         padding: 8px 22px; border-radius: 30px; display: none; }
         #status-text { color: #e94560; font-weight: bold; }
+        /* ปุ่มเปิดปิดภาพสด ใช้คลาสของตัวเองเพราะ .btn บังคับให้เป็นสี่เหลี่ยมจัตุรัส */
+        #cam-btn { display: block; width: 100%; max-width: 340px; margin: -6px auto 16px auto;
+                   padding: 11px; border: none; border-radius: 12px; font-size: 15px; font-weight: bold;
+                   color: white; background-color: #0f3460; cursor: pointer; }
+        #cam-btn.off { background-color: #4a4a63; color: #b9b9cc; }
         .grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-gap: 14px; max-width: 300px; margin: 0 auto 16px auto; }
         .btn { width: 100%; aspect-ratio: 1/1; border-radius: 20px; font-size: 28px; color: white; border: none; cursor: pointer; background-color: #0f3460; }
         .btn:active { background-color: #2980b9; }
@@ -198,6 +203,8 @@ const char index_html[] PROGMEM = R"rawliteral(
         <img id="cam" style="display:none">
         <div id="animal-badge"></div>
     </div>
+
+    <button id="cam-btn" onclick="toggleCam()">ปิดภาพกล้อง</button>
 
     <div class="card">
         MODE: <span id="status-text">MANUAL</span> | SPEED: <span id="speed-val">0</span><br>
@@ -226,14 +233,15 @@ const char index_html[] PROGMEM = R"rawliteral(
 <script>
 var websocket;
 var isAuto = false;
-var camUrl = "";
+var camIp = "";        // IP ของกล้องที่รีโมทบอกมาล่าสุด ว่างแปลว่ายังไม่เจอกล้อง
+var camOn = true;      // ผู้ใช้เปิดภาพสดไว้หรือเปล่า แยกจากเรื่องว่ามีกล้องอยู่ไหม
 var badgeTimer = null;
 
 function initWebSocket() {
     websocket = new WebSocket('ws://' + window.location.hostname + ':81/');
     websocket.onmessage = onMessage;
     websocket.onopen = function() {
-        document.getElementById('link').innerText = 'CAM: ' + (camUrl ? 'ok' : '-');
+        document.getElementById('link').innerText = 'CAM: ' + (camIp ? camIp : '-');
         // บอกความเร็วที่สไลเดอร์ตั้งอยู่ให้หุ่นรู้ทันที ไม่งั้นหน้าเว็บโชว์ 0
         // แต่หุ่นยังถือค่าตั้งต้นของตัวเองอยู่ กดเดินหน้าแล้วจะพุ่งทันทีทั้งที่สไลเดอร์อยู่ที่ศูนย์
         updateSpeed(document.getElementById('speed-slider').value);
@@ -252,21 +260,46 @@ function onMessage(evt) {
 }
 
 function setCamera(ip) {
+    camIp = ip;
     document.getElementById('link').innerText = ip ? ('CAM: ' + ip) : 'CAM: -';
+    applyCam();
+}
+
+// วาดส่วนของกล้องให้ตรงกับสองอย่าง คือมีกล้องอยู่ไหม และผู้ใช้เปิดภาพไว้ไหม
+//
+// ตอนปิดต้องถอด src ออกจริงๆ ซ่อนด้วย CSS ไม่พอ
+// เพราะเบราว์เซอร์จะยังคาการเชื่อมต่อไว้ กล้องก็ยังถ่ายและส่งภาพออกมาเรื่อยๆ
+// ทั้งที่ไม่มีใครดู ซึ่งคือสิ่งที่ปุ่มนี้ตั้งใจจะหยุด
+// พอการเชื่อมต่อขาด ฝั่งกล้องจะส่งก้อนถัดไปไม่สำเร็จแล้วออกจากลูปส่งภาพเอง
+function applyCam() {
     var img = document.getElementById('cam');
     var msg = document.getElementById('cam-msg');
-    if (!ip) {                       // กล้องหลุด กลับไปแสดงข้อความรอ
-        camUrl = "";
-        img.style.display = 'none';
+    var btn = document.getElementById('cam-btn');
+
+    btn.innerText = camOn ? 'ปิดภาพกล้อง' : 'เปิดภาพกล้อง';
+    btn.className = camOn ? '' : 'off';
+
+    if (!camOn || !camIp) {
         img.removeAttribute('src');
+        img.style.display = 'none';
+        msg.innerText = camOn ? 'กำลังรอกล้องเชื่อมต่อ...'
+                              : 'ปิดภาพกล้องไว้เพื่อประหยัดพลังงาน';
         msg.style.display = 'block';
         return;
     }
-    var url = 'http://' + ip + ':81/stream';
-    if (url === camUrl) return;      // IP เดิม ไม่ต้องโหลดสตรีมใหม่
-    camUrl = url;
+
+    var url = 'http://' + camIp + ':81/stream';
+    if (img.getAttribute('src') === url) return;  // สตรีมเดิมยังไหลอยู่ อย่าไปสั่งโหลดใหม่ให้ภาพกระตุก
     img.onload = function() { msg.style.display = 'none'; img.style.display = 'block'; };
+    msg.innerText = 'กำลังเปิดภาพ...';
     img.src = url;
+}
+
+function toggleCam() {
+    camOn = !camOn;
+    // จำไว้ด้วย เพราะหน้าเว็บนี้ถูกรีเฟรชบ่อย ไม่งั้นต้องมากดปิดใหม่ทุกครั้ง
+    try { localStorage.setItem('camOn', camOn ? '1' : '0'); } catch (e) {}
+    applyCam();
 }
 
 function showAnimal(name) {
@@ -312,7 +345,12 @@ function updateSpeed(s) {
     if (websocket && websocket.readyState === 1) websocket.send("SPEED:" + s);
 }
 
-window.onload = initWebSocket;
+window.onload = function() {
+    // เอาค่าที่เลือกไว้รอบก่อนกลับมาใช้ ถ้าเบราว์เซอร์ไม่ให้เก็บก็ถือว่าเปิดภาพไว้
+    try { camOn = localStorage.getItem('camOn') !== '0'; } catch (e) {}
+    applyCam();
+    initWebSocket();
+};
 </script>
 </body>
 </html>
