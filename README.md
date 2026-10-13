@@ -213,7 +213,9 @@ python pc_qr_scanner/qr_scanner.py
 
 The scanner finds the camera by itself. Pass an IP to skip the search: `python pc_qr_scanner/qr_scanner.py 192.168.4.3`
 
-The button under the camera image switches the stream off. It detaches the image rather than hiding it, because a hidden `<img>` keeps its connection open and the camera keeps encoding and sending frames for nobody; dropping the connection is what makes the camera's stream handler stop. The choice is remembered in the browser, so a page reload keeps it. Note that the PC scanner holds a stream of its own, so with the scanner running the camera keeps working — the button frees the airtime of a second viewer, which is also the one competing with the controls for the link.
+The button under the camera image switches the stream off. It detaches the image rather than hiding it, because a hidden `<img>` keeps its connection open and the camera keeps encoding and sending frames for nobody; dropping the connection is what makes the camera's stream handler stop. The PC scanner is unaffected either way — it polls `/capture` on port 80, a separate server from the `/stream` on port 81 that the page watches.
+
+The image is shown as soon as its `src` is set, not when `load` fires. An MJPEG stream never finishes loading, so plenty of browsers never fire `load` at all; waiting for it leaves the picture hidden while the frames are already arriving. A four-second timer clears the connecting message for the browsers that stay silent, and `error` still puts the message back when the stream genuinely will not open.
 
 </details>
 

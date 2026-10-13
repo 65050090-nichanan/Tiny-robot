@@ -52,7 +52,7 @@
 #include "animal_bitmaps.h"  // รูปเต็มจอ 128x64 สร้างจาก tools/png_to_bitmaps.py
 
 // ---------- ค่าคงที่ตั้งค่าได้ ----------
-const char *AP_SSID = "My_Robot5";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
+const char *AP_SSID = "My_Robot7";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
 const char *AP_PASSWORD = "password1234";  // รหัสผ่าน Wi-Fi (ต้องยาวอย่างน้อย 8 ตัว)
 
 const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อมูลจาก STM32
@@ -234,6 +234,7 @@ var isAuto = false;
 var camUrl = "";
 var camIp = "";
 var camEnabled = true;
+var camMsgTimer = null;   // ตัวจับเวลาเก็บข้อความ 'กำลังเชื่อมต่อ' เผื่อเบราว์เซอร์ไม่ยิง load
 var badgeTimer = null;
 
 function initWebSocket() {
@@ -278,6 +279,7 @@ function renderCameraStream() {
     var btn = document.getElementById('cam-toggle-btn');
     var link = document.getElementById('link');
 
+    clearTimeout(camMsgTimer);   // สถานะเปลี่ยนแล้ว ตัวจับเวลาของรอบก่อนใช้ไม่ได้อีก
     btn.disabled = !camUrl;
     link.innerText = camIp ? ('CAM: ' + camIp + (camEnabled ? '' : ' (ปิดสตรีม)')) : 'CAM: -';
 
@@ -301,9 +303,33 @@ function renderCameraStream() {
 
     msg.innerText = 'กำลังเชื่อมต่อสตรีมกล้อง...';
     msg.style.display = 'block';
-    img.onload = function() { msg.style.display = 'none'; img.style.display = 'block'; };
-    img.onerror = function() { msg.innerText = 'เชื่อมต่อสตรีมกล้องไม่ได้'; img.style.display = 'none'; };
+
+    // ต้องโชว์ <img> ตั้งแต่ตอนนี้ ห้ามไปรอ onload
+    //
+    // /stream เป็น MJPEG (multipart/x-mixed-replace) ซึ่งไม่มีจุดจบ
+    // เบราว์เซอร์หลายตัวจึงไม่ยิง load ให้เลย ภาพไหลเข้ามาแล้วแต่ยังซ่อนอยู่
+    // หน้าเว็บก็ค้างที่ 'กำลังเชื่อมต่อ...' ทั้งที่กล้องส่งภาพมาตั้งนานแล้ว
+    img.style.display = 'block';
+
+    img.onload = function() { hideCamMsg(); };
+    img.onerror = function() {
+        clearTimeout(camMsgTimer);
+        msg.innerText = 'เชื่อมต่อสตรีมกล้องไม่ได้';
+        msg.style.display = 'block';
+        img.style.display = 'none';
+    };
+
+    // กันเบราว์เซอร์ที่ไม่ยิง load: ถ้าไม่มีทั้ง load และ error ภายในเวลานี้
+    // ถือว่าภาพกำลังไหลอยู่จริง เก็บข้อความออกไปได้
+    clearTimeout(camMsgTimer);
+    camMsgTimer = setTimeout(hideCamMsg, 4000);
+
     if (img.getAttribute('src') !== camUrl) img.src = camUrl;
+}
+
+function hideCamMsg() {
+    clearTimeout(camMsgTimer);
+    document.getElementById('cam-msg').style.display = 'none';
 }
 
 function showAnimal(name) {
