@@ -2,7 +2,7 @@
 // ESP32 Remote: Wi-Fi AP + หน้าเว็บบังคับหุ่น + ภาพสดจากกล้อง + จอ OLED โชว์รูปสัตว์
 //
 // หน้าที่ของบอร์ดนี้
-//   1. ปล่อย Wi-Fi AP ชื่อ My_Robot2 ให้มือถือและ ESP32-CAM มาเกาะ
+//   1. ปล่อย Wi-Fi AP ชื่อ My_Robot5 ให้มือถือและ ESP32-CAM มาเกาะ
 //   2. เสิร์ฟหน้าเว็บบังคับหุ่น พร้อมฝังภาพสดจากกล้อง
 //   3. ส่งคำสั่งจากหน้าเว็บต่อไปให้ STM32 ทาง Serial2 (นี่คือส่วนที่เดิมขาดไป หุ่นเลยไม่ขยับ)
 //   4. รับรหัสสัตว์จาก ESP32-CAM ทาง UDP แล้วเล่นภาพบนจอ OLED เป็นลำดับ
@@ -52,7 +52,7 @@
 #include "animal_bitmaps.h"  // รูปเต็มจอ 128x64 สร้างจาก tools/png_to_bitmaps.py
 
 // ---------- ค่าคงที่ตั้งค่าได้ ----------
-const char *AP_SSID = "My_Robot10";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
+const char *AP_SSID = "My_Robot5";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
 const char *AP_PASSWORD = "password1234";  // รหัสผ่าน Wi-Fi (ต้องยาวอย่างน้อย 8 ตัว)
 
 const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อมูลจาก STM32
@@ -71,9 +71,6 @@ const uint8_t OLED_ADDR = 0x3C;  // แอดเดรส I2C ของจอ (�
 // ถ้าจอเพี้ยนหรือหลุดหลังเพิ่มความเร็ว ให้ลองลดเป็น 200000 ก่อน
 const uint32_t OLED_I2C_HZ = 400000;
 const int OLED_BOOT_WAIT_MS = 300;         // รอกี่มิลลิวินาทีก่อนสั่ง init ให้จอตั้งตัวเสร็จ
-// สั่ง init ซ้ำอีกรอบตอนกี่มิลลิวินาทีหลังบูต
-// ต้องหลัง START_SCREEN_MS เพื่อไม่ไปขัดจังหวะหน้าต้อนรับที่กำลังค้างอยู่
-const unsigned long OLED_REINIT_MS = 4000;
 // ความสว่างของจอ 0x00 ถึง 0xFF -- คุมกระแสที่ป้อนให้แต่ละพิกเซลโดยตรง
 // ค่ายิ่งต่ำยิ่งกินไฟน้อย ช่วยได้มากถ้าไฟเลี้ยงไม่นิ่งจนบอร์ดรีเซ็ตตัวเองตอนวาดรูปที่ติดไฟเยอะ
 // 0x30 สว่างพออ่านได้สบายในร่ม ถ้าอยากสว่างขึ้นไล่ขึ้นทีละ 0x10
@@ -82,6 +79,7 @@ const int OLED_W = 128;  // ความกว้างจอเป็นพิ�
 const int OLED_H = 64;   // ความสูงจอเป็นพิกเซล
 
 const unsigned int ANIMAL_UDP_PORT = 1235;  // พอร์ต UDP ที่รอรับรหัสสัตว์จาก ESP32-CAM
+const unsigned int CAMERA_UDP_PORT = 1234;  // พอร์ตควบคุมโปรไฟล์ภาพของ ESP32-CAM
 const unsigned long ANIMAL_SHOW_MS = 5000;  // เวลารวมของช่วง "เจอแล้ว" + รูปสัตว์ (ให้เท่ากับเวลาที่หุ่นหยุด)
 const unsigned long DETECT_SHOW_MS = 1000;  // ในช่วงนั้น กระพริบภาพ "เจอแล้ว" กี่มิลลิวินาทีก่อนเปลี่ยนเป็นรูปสัตว์
 const unsigned long START_SCREEN_MS = 2500;  // ค้างหน้าต้อนรับกี่มิลลิวินาทีนับจากบูต
@@ -179,11 +177,6 @@ const char index_html[] PROGMEM = R"rawliteral(
                         background: rgba(15,157,88,0.92); color: #fff; font-size: 20px; font-weight: bold;
                         padding: 8px 22px; border-radius: 30px; display: none; }
         #status-text { color: #e94560; font-weight: bold; }
-        /* ปุ่มเปิดปิดภาพสด ใช้คลาสของตัวเองเพราะ .btn บังคับให้เป็นสี่เหลี่ยมจัตุรัส */
-        #cam-btn { display: block; width: 100%; max-width: 340px; margin: -6px auto 16px auto;
-                   padding: 11px; border: none; border-radius: 12px; font-size: 15px; font-weight: bold;
-                   color: white; background-color: #0f3460; cursor: pointer; }
-        #cam-btn.off { background-color: #4a4a63; color: #b9b9cc; }
         .grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-gap: 14px; max-width: 300px; margin: 0 auto 16px auto; }
         .btn { width: 100%; aspect-ratio: 1/1; border-radius: 20px; font-size: 28px; color: white; border: none; cursor: pointer; background-color: #0f3460; }
         .btn:active { background-color: #2980b9; }
@@ -193,6 +186,10 @@ const char index_html[] PROGMEM = R"rawliteral(
         .slider { width: 100%; height: 10px; border-radius: 5px; background: #0f3460; outline: none; -webkit-appearance: none; }
         .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 25px; height: 25px; border-radius: 50%; background: #e94560; border: 2px solid white; }
         #link { color: #8a8aa8; font-size: 12px; }
+        .cam-control { max-width: 340px; margin: -6px auto 16px auto; }
+        .cam-toggle { width: 100%; min-height: 44px; border: none; border-radius: 12px; background: #0f3460; color: white; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .cam-toggle:active { background: #2980b9; }
+        .cam-toggle:disabled { background: #34344d; color: #8a8aa8; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -203,8 +200,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         <img id="cam" style="display:none">
         <div id="animal-badge"></div>
     </div>
-
-    <button id="cam-btn" onclick="toggleCam()">ปิดภาพกล้อง</button>
+    <div class="cam-control">
+        <button id="cam-toggle-btn" class="cam-toggle" onclick="toggleCameraStream()" disabled>รอกล้องเชื่อมต่อ...</button>
+    </div>
 
     <div class="card">
         MODE: <span id="status-text">MANUAL</span> | SPEED: <span id="speed-val">0</span><br>
@@ -233,15 +231,16 @@ const char index_html[] PROGMEM = R"rawliteral(
 <script>
 var websocket;
 var isAuto = false;
-var camIp = "";        // IP ของกล้องที่รีโมทบอกมาล่าสุด ว่างแปลว่ายังไม่เจอกล้อง
-var camOn = true;      // ผู้ใช้เปิดภาพสดไว้หรือเปล่า แยกจากเรื่องว่ามีกล้องอยู่ไหม
+var camUrl = "";
+var camIp = "";
+var camEnabled = true;
 var badgeTimer = null;
 
 function initWebSocket() {
     websocket = new WebSocket('ws://' + window.location.hostname + ':81/');
     websocket.onmessage = onMessage;
     websocket.onopen = function() {
-        document.getElementById('link').innerText = 'CAM: ' + (camIp ? camIp : '-');
+        renderCameraStream();
         // บอกความเร็วที่สไลเดอร์ตั้งอยู่ให้หุ่นรู้ทันที ไม่งั้นหน้าเว็บโชว์ 0
         // แต่หุ่นยังถือค่าตั้งต้นของตัวเองอยู่ กดเดินหน้าแล้วจะพุ่งทันทีทั้งที่สไลเดอร์อยู่ที่ศูนย์
         updateSpeed(document.getElementById('speed-slider').value);
@@ -261,45 +260,50 @@ function onMessage(evt) {
 
 function setCamera(ip) {
     camIp = ip;
-    document.getElementById('link').innerText = ip ? ('CAM: ' + ip) : 'CAM: -';
-    applyCam();
+    camUrl = ip ? ('http://' + ip + ':81/stream') : '';
+    renderCameraStream();
 }
 
-// วาดส่วนของกล้องให้ตรงกับสองอย่าง คือมีกล้องอยู่ไหม และผู้ใช้เปิดภาพไว้ไหม
-//
-// ตอนปิดต้องถอด src ออกจริงๆ ซ่อนด้วย CSS ไม่พอ
-// เพราะเบราว์เซอร์จะยังคาการเชื่อมต่อไว้ กล้องก็ยังถ่ายและส่งภาพออกมาเรื่อยๆ
-// ทั้งที่ไม่มีใครดู ซึ่งคือสิ่งที่ปุ่มนี้ตั้งใจจะหยุด
-// พอการเชื่อมต่อขาด ฝั่งกล้องจะส่งก้อนถัดไปไม่สำเร็จแล้วออกจากลูปส่งภาพเอง
-function applyCam() {
+// สลับการรับภาพสดเฉพาะในหน้าเว็บ: เอา src ออกเมื่อปิด จึงตัดการเชื่อมต่อ /stream
+// ส่วน ESP32-CAM ยังออนไลน์เพื่อส่งสถานะ/ผลตรวจจับสัตว์ตามปกติ
+function toggleCameraStream() {
+    if (!camUrl) return;
+    camEnabled = !camEnabled;
+    renderCameraStream();
+}
+
+function renderCameraStream() {
     var img = document.getElementById('cam');
     var msg = document.getElementById('cam-msg');
-    var btn = document.getElementById('cam-btn');
+    var btn = document.getElementById('cam-toggle-btn');
+    var link = document.getElementById('link');
 
-    btn.innerText = camOn ? 'ปิดภาพกล้อง' : 'เปิดภาพกล้อง';
-    btn.className = camOn ? '' : 'off';
+    btn.disabled = !camUrl;
+    link.innerText = camIp ? ('CAM: ' + camIp + (camEnabled ? '' : ' (ปิดสตรีม)')) : 'CAM: -';
 
-    if (!camOn || !camIp) {
-        img.removeAttribute('src');
+    if (!camUrl) {                   // กล้องหลุด กลับไปแสดงข้อความรอ
+        btn.innerText = 'รอกล้องเชื่อมต่อ...';
         img.style.display = 'none';
-        msg.innerText = camOn ? 'กำลังรอกล้องเชื่อมต่อ...'
-                              : 'ปิดภาพกล้องไว้เพื่อประหยัดพลังงาน';
+        img.removeAttribute('src');
+        msg.innerText = 'กำลังรอกล้องเชื่อมต่อ...';
         msg.style.display = 'block';
         return;
     }
 
-    var url = 'http://' + camIp + ':81/stream';
-    if (img.getAttribute('src') === url) return;  // สตรีมเดิมยังไหลอยู่ อย่าไปสั่งโหลดใหม่ให้ภาพกระตุก
-    img.onload = function() { msg.style.display = 'none'; img.style.display = 'block'; };
-    msg.innerText = 'กำลังเปิดภาพ...';
-    img.src = url;
-}
+    btn.innerText = camEnabled ? 'ปิดสตรีมกล้อง' : 'เปิดสตรีมกล้อง';
+    if (!camEnabled) {
+        img.style.display = 'none';
+        img.removeAttribute('src');
+        msg.innerText = 'ปิดสตรีมกล้องอยู่';
+        msg.style.display = 'block';
+        return;
+    }
 
-function toggleCam() {
-    camOn = !camOn;
-    // จำไว้ด้วย เพราะหน้าเว็บนี้ถูกรีเฟรชบ่อย ไม่งั้นต้องมากดปิดใหม่ทุกครั้ง
-    try { localStorage.setItem('camOn', camOn ? '1' : '0'); } catch (e) {}
-    applyCam();
+    msg.innerText = 'กำลังเชื่อมต่อสตรีมกล้อง...';
+    msg.style.display = 'block';
+    img.onload = function() { msg.style.display = 'none'; img.style.display = 'block'; };
+    img.onerror = function() { msg.innerText = 'เชื่อมต่อสตรีมกล้องไม่ได้'; img.style.display = 'none'; };
+    if (img.getAttribute('src') !== camUrl) img.src = camUrl;
 }
 
 function showAnimal(name) {
@@ -345,12 +349,7 @@ function updateSpeed(s) {
     if (websocket && websocket.readyState === 1) websocket.send("SPEED:" + s);
 }
 
-window.onload = function() {
-    // เอาค่าที่เลือกไว้รอบก่อนกลับมาใช้ ถ้าเบราว์เซอร์ไม่ให้เก็บก็ถือว่าเปิดภาพไว้
-    try { camOn = localStorage.getItem('camOn') !== '0'; } catch (e) {}
-    applyCam();
-    initWebSocket();
-};
+window.onload = initWebSocket;
 </script>
 </body>
 </html>
@@ -386,54 +385,6 @@ void scanI2CBus() {
   }
 }
 
-// ปลดสาย I2C ที่ถูกกดค้างไว้จากรอบที่แล้ว -- ต้องเรียกก่อน Wire.begin() เท่านั้น
-//
-// อาการ "เปิดครั้งแรกจอขึ้น พอเปิดใหม่ไม่ขึ้น" มาจากตรงนี้
-// ตอนบอร์ดรีเซ็ต โค้ดกำลังส่งภาพเฟรมหนึ่งอยู่ จอรับไปได้ครึ่งไบต์แล้วทุกอย่างหยุดกึก
-// จอจะกดสาย SDA ค้างไว้ที่ศูนย์เพื่อรอสัญญาณนาฬิกาที่เหลือ
-// ซึ่งไม่มีวันมา เพราะ ESP32 เริ่มนับหนึ่งใหม่ไปแล้ว
-// พอ Wire.begin() มาเจอสายที่โดนกดค้าง คำสั่งทุกคำสั่งหลังจากนั้นออกจากบอร์ดไม่ได้เลย
-//
-// ที่เปิดครั้งแรกแล้วขึ้น เพราะตอนนั้นจอเพิ่งได้ไฟ ไม่มีงานค้างให้รอ
-// ส่วนตอนกดรีเซ็ตหรือถอดเสียบไฟเร็วๆ ประจุในจอยังไม่ทันหมด จอจึงจำสถานะค้างไว้ได้
-//
-// วิธีปลดคือเคาะสัญญาณนาฬิกาเองด้วยมือ จอจะส่งไบต์ที่ค้างจนจบแล้วปล่อยสาย
-// หนึ่งไบต์มี 8 บิตบวกบิตตอบรับอีกหนึ่ง เคาะ 9 ครั้งจึงพอสำหรับทุกกรณี
-// ให้ไป 16 ครั้งเพราะเคาะเกินไม่เสียหายอะไร และกันกรณีที่จอค้างอยู่กลางไบต์ที่สอง
-void recoverI2CBus() {
-  // ต้องเป็น open drain ทั้งคู่ ขาที่ดันไฟออกมาเองจะไปสู้กับจอที่กำลังกดสายอยู่
-  pinMode(OLED_SCL_PIN, OUTPUT_OPEN_DRAIN);
-  digitalWrite(OLED_SCL_PIN, HIGH);
-  pinMode(OLED_SDA_PIN, INPUT_PULLUP);
-  delayMicroseconds(10);
-
-  if (digitalRead(OLED_SDA_PIN) == HIGH) return;  // สายว่างดีอยู่แล้ว ไม่ต้องยุ่ง
-
-  Serial.println("    สาย SDA ถูกกดค้างจากรอบที่แล้ว กำลังเคาะปลด");
-  for (int i = 0; i < 16 && digitalRead(OLED_SDA_PIN) == LOW; i++) {
-    digitalWrite(OLED_SCL_PIN, LOW);
-    delayMicroseconds(5);
-    digitalWrite(OLED_SCL_PIN, HIGH);
-    delayMicroseconds(5);
-  }
-
-  // ปิดท้ายด้วยสัญญาณหยุด คือดึง SDA ขึ้นตอนที่ SCL ค้างสูงอยู่
-  // ถ้าไม่ทำ จอจะคิดว่ายังอยู่กลางรายการเดิมแล้วไม่ยอมฟังคำสั่งแรกของรอบใหม่
-  pinMode(OLED_SDA_PIN, OUTPUT_OPEN_DRAIN);
-  digitalWrite(OLED_SDA_PIN, LOW);
-  delayMicroseconds(5);
-  digitalWrite(OLED_SCL_PIN, HIGH);
-  delayMicroseconds(5);
-  digitalWrite(OLED_SDA_PIN, HIGH);
-  delayMicroseconds(5);
-
-  pinMode(OLED_SDA_PIN, INPUT_PULLUP);
-  delayMicroseconds(10);
-  Serial.println(digitalRead(OLED_SDA_PIN) == HIGH
-                 ? "    ปลดสายสำเร็จ"
-                 : "    ยังปลดไม่ออก -- ถ้าจอไม่ขึ้น ให้ถอดไฟทิ้งไว้สักครู่แล้วเสียบใหม่");
-}
-
 // สั่ง init ครั้งเดียวโดยไม่รอ ใช้ตอนที่รู้แล้วว่าจอตอบรับอยู่
 bool beginDisplayOnce() {
 #if OLED_DRIVER_SH1106
@@ -452,13 +403,6 @@ bool initDisplay() {
   // ถ้ายิงคำสั่ง init ไปเร็วเกินคำสั่งจะหายไปเงียบๆ แล้วจอค้างดำ
   delay(OLED_BOOT_WAIT_MS);
   beginDisplayOnce();
-
-  // สั่งซ้ำอีกชุด ชุดแรกหลังปลดบัสมักหายไปทั้งชุด
-  // เพราะจอเพิ่งทิ้งไบต์ที่ค้างอยู่แล้วยังตั้งหลักไม่เสร็จตอนคำสั่งแรกมาถึง
-  // ชุดคำสั่ง init ยาวไม่กี่สิบไบต์ ส่งซ้ำเสียเวลาไม่ถึงมิลลิวินาที
-  delay(50);
-  beginDisplayOnce();
-
   Serial.println("สั่งเริ่มจอแล้ว");
   return true;
 }
@@ -662,6 +606,20 @@ void sendToStm32(const String &cmd) {
   Serial.println(cmd);
 }
 
+// ขณะ AUTO ให้กล้องใช้ภาพ CIF ที่ส่งได้เร็วกว่า VGA; กลับ Manual จึงคืนความละเอียดเต็ม
+// ถ้ากล้องยังไม่ส่ง ping จนเรายังไม่รู้ IP จะมีการส่งคำสั่งนี้ทันทีเมื่อพบกล้องใน handleUdp()
+void requestCameraProfile(bool fast) {
+  if (!camIp.length()) return;
+
+  IPAddress camera;
+  if (!camera.fromString(camIp)) return;
+
+  udp.beginPacket(camera, CAMERA_UDP_PORT);
+  udp.write((uint8_t)(fast ? 'F' : 'V'));
+  udp.endPacket();
+  Serial.printf("ขอโปรไฟล์กล้อง: %s\n", fast ? "FAST" : "DETAIL");
+}
+
 // เก็บบรรทัดสถานะที่ STM32 ส่งกลับมา ไว้ให้ PC มาดึงไปลง CSV
 //
 // ตั้งใจไม่ส่งอะไรเข้าหน้าเว็บ ค่าพวกนี้ใช้ตอนวิเคราะห์ย้อนหลังใน Excel
@@ -704,9 +662,11 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
   if (msg == "MODE:AUTO") {
     isAutoMode = true;
     isMoving = true;              // โหมดออโต้ = วิ่งตามเส้นไปเรื่อยๆ
+    requestCameraProfile(true);
   } else if (msg == "MODE:MANUAL") {
     isAutoMode = false;
     isMoving = false;
+    requestCameraProfile(false);
   } else if (msg.startsWith("SPEED:")) {
     robotSpeed = msg.substring(6).toInt();
   } else if (msg == "stop") {
@@ -781,6 +741,7 @@ void handleUdp() {
   lastCamSeen = millis();
   if (from != camIp) {
     camIp = from;
+    requestCameraProfile(isAutoMode);  // กล้องเพิ่งออนไลน์ระหว่างที่ AUTO อยู่ก็ใช้โหมดเร็วทันที
     String note = "CAMIP:" + camIp;  // ไลบรารีรับเป็น String& จึงส่งค่าชั่วคราวตรงๆ ไม่ได้
     webSocket.broadcastTXT(note);
     Serial.println("พบกล้องที่ " + camIp);
@@ -818,7 +779,6 @@ void setup() {
   Serial.println("[1] Serial2 ไป STM32 พร้อม");
 
   // จอ OLED: ถ้าหาไม่เจอก็ปล่อยผ่าน ส่วนอื่นของระบบยังทำงานได้ปกติ
-  recoverI2CBus();  // ต้องมาก่อน Wire.begin() เสมอ ไม่งั้นไปแย่งขากับไลบรารี
   Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
   Wire.setClock(OLED_I2C_HZ);
   Serial.printf("[2] I2C พร้อม SDA=%d SCL=%d\n", OLED_SDA_PIN, OLED_SCL_PIN);
@@ -872,22 +832,6 @@ void loop() {
   }
 
   pumpStm32Serial();  // รับค่าสถานะจาก STM32 เก็บไว้ให้ PC มาดึง
-
-  // สั่งเริ่มจอซ้ำอีกครั้งหลังบูตไปแล้วพักหนึ่ง ทำครั้งเดียวตลอดการทำงาน
-  //
-  // วงจรปั๊มแรงดันในจอบางตัวตั้งตัวช้ากว่า 300 มิลลิวินาทีที่รอไว้ตอนบูต
-  // ชุดคำสั่งแรกจึงหายไปทั้งชุดแล้วจอค้างดำ ทั้งที่สายดีและโค้ดส่งภาพอยู่ตลอด
-  // ถึงตรงนี้จอตั้งตัวเสร็จแน่นอนแล้ว และราคาคือไม่กี่มิลลิวินาทีครั้งเดียว
-  static bool reinitDone = false;
-  if (!reinitDone && millis() > OLED_REINIT_MS) {
-    reinitDone = true;
-    if (hasOled) {
-      beginDisplayOnce();
-      idleDirty = true;   // ชุด init ล้างภาพในจอทิ้ง ต้องสั่งวาดใหม่ ไม่งั้นจอว่างจนกว่าสถานะจะเปลี่ยน
-      Serial.println("สั่งเริ่มจอซ้ำรอบสอง (กันจอตั้งตัวช้ากว่าที่รอไว้ตอนบูต)");
-    }
-  }
-
   updateScreen();  // เครื่องสถานะของจอ ตัดสินใจเองว่ารอบนี้ต้องวาดอะไรไหม
   blinkOnce();     // ทดสอบครั้งเดียวว่าจอยังฟังคำสั่งอยู่ไหม
 
