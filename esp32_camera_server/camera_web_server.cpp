@@ -24,8 +24,10 @@
 #include "esp32-hal-log.h"
 #endif
 
-// Enable LED FLASH setting
-#define CONFIG_LED_ILLUMINATOR_ENABLED 1
+// The AI Thinker ESP32-CAM routes GPIO22 to the camera PCLK signal, not the flash LED.
+// Enabling the copied LED helper makes every /capture request wait 150 ms and can
+// interfere with the camera clock.  Keep it off for the low-latency robot stream.
+#define CONFIG_LED_ILLUMINATOR_ENABLED 0
 
 // LED FLASH setup
 #if CONFIG_LED_ILLUMINATOR_ENABLED

@@ -52,7 +52,7 @@
 #include "animal_bitmaps.h"  // รูปเต็มจอ 128x64 สร้างจาก tools/png_to_bitmaps.py
 
 // ---------- ค่าคงที่ตั้งค่าได้ ----------
-const char *AP_SSID = "My_Robot3";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
+const char *AP_SSID = "My_Robot9";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
 const char *AP_PASSWORD = "password1234";  // รหัสผ่าน Wi-Fi (ต้องยาวอย่างน้อย 8 ตัว)
 
 const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อมูลจาก STM32
