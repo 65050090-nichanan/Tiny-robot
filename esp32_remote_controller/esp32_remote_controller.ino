@@ -52,7 +52,7 @@
 #include "animal_bitmaps.h"  // รูปเต็มจอ 128x64 สร้างจาก tools/png_to_bitmaps.py
 
 // ---------- ค่าคงที่ตั้งค่าได้ ----------
-const char *AP_SSID = "My_Robot7";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
+const char *AP_SSID = "My_Robot3";        // ชื่อ Wi-Fi ที่หุ่นปล่อยออกมา
 const char *AP_PASSWORD = "password1234";  // รหัสผ่าน Wi-Fi (ต้องยาวอย่างน้อย 8 ตัว)
 
 const int STM32_RX_PIN = 16;  // ขา RX ของ ESP32 รับข้อมูลจาก STM32
@@ -211,13 +211,13 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     <div class="grid">
         <div class="empty"></div>
-        <button class="btn" onmousedown="sendCmd('forward')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('forward')" ontouchend="sendCmd('stop')">&#9650;</button>
+        <button class="btn" onpointerdown="press(event,'forward')" onpointerup="release(event)" onpointercancel="release(event)">&#9650;</button>
         <div class="empty"></div>
-        <button class="btn" onmousedown="sendCmd('left')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('left')" ontouchend="sendCmd('stop')">&#9664;</button>
+        <button class="btn" onpointerdown="press(event,'left')" onpointerup="release(event)" onpointercancel="release(event)">&#9664;</button>
         <button id="main-btn" class="btn btn-toggle" onclick="toggleMode()">STOP<br><small>MANUAL</small></button>
-        <button class="btn" onmousedown="sendCmd('right')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('right')" ontouchend="sendCmd('stop')">&#9654;</button>
+        <button class="btn" onpointerdown="press(event,'right')" onpointerup="release(event)" onpointercancel="release(event)">&#9654;</button>
         <div class="empty"></div>
-        <button class="btn" onmousedown="sendCmd('backward')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('backward')" ontouchend="sendCmd('stop')">&#9660;</button>
+        <button class="btn" onpointerdown="press(event,'backward')" onpointerup="release(event)" onpointercancel="release(event)">&#9660;</button>
         <div class="empty"></div>
     </div>
 
@@ -338,6 +338,27 @@ function showAnimal(name) {
     badge.style.display = 'block';
     if (badgeTimer) clearTimeout(badgeTimer);
     badgeTimer = setTimeout(function() { badge.style.display = 'none'; }, 5000);
+}
+
+// ปุ่มทิศทางใช้ pointer event ชุดเดียว ไม่ใช้ mouse กับ touch คู่กัน
+//
+// ของเดิมผูกไว้ทั้ง onmousedown และ ontouchstart พอแตะบนมือถือ เบราว์เซอร์
+// ยิง touch ให้ชุดหนึ่งแล้วสังเคราะห์ mouse ตามมาอีกชุดสำหรับการแตะครั้งเดียวกัน
+// กลายเป็น forward, stop, forward, stop ล้อเลยกระตุกสองจังหวะจากการแตะทีเดียว
+// pointerdown/pointerup ครอบทั้งนิ้วและเมาส์ และยิงครั้งเดียวจริงๆ
+function press(e, cmd) {
+    e.preventDefault();
+    // ยึด pointer ไว้กับปุ่มนี้ กดค้างแล้วลากนิ้วออกไปปล่อยข้างนอก
+    // pointerup ก็ยังกลับมาที่ปุ่มเดิม คำสั่ง stop จึงไม่มีทางหล่นหาย
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    sendCmd(cmd);
+}
+
+// pointercancel มาตอนระบบแย่ง pointer ไป เช่นมีสายเข้าหรือแจ้งเตือนเด้งทับ
+// ต้องสั่งหยุดด้วย ไม่งั้นหุ่นวิ่งต่อทั้งที่ไม่มีใครกดปุ่มแล้ว
+function release(e) {
+    e.preventDefault();
+    sendCmd('stop');
 }
 
 function sendCmd(cmd) {
